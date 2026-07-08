@@ -8,12 +8,15 @@ from app.core.database import Base, engine
 from app.models import projet, sous_traitant  # noqa: F401 — nécessaire pour enregistrer les tables
 
 from app.models import contrat  # noqa: F401
+from app.models import dce  # noqa: F401
 
 Base.metadata.create_all(bind=engine)
 
 from app.routers import projets, sous_traitants
 from app.routers import contrats
+from app.routers import dce
 
+app.include_router(dce.router)
 app.include_router(contrats.router)
 app.include_router(projets.router)
 app.include_router(sous_traitants.router)

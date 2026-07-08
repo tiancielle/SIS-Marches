@@ -12,7 +12,7 @@ function Row({ label, value, danger }) {
 }
 
 export default function ProjectInfoTab({ project }) {
-  const overBudget = project.budgetEngage > project.budget;
+  const overBudget = project.budget_engage > project.budget;
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 20 }}>
@@ -21,7 +21,7 @@ export default function ProjectInfoTab({ project }) {
         <Row label="Lieu" value={project.lieu} />
         <Row label="Chef de projet" value={project.chef} />
         <Row label="Budget total" value={fmt(project.budget)} />
-        <Row label="Budget engagé" value={fmt(project.budgetEngage)} danger={overBudget} />
+        <Row label="Budget engagé" value={fmt(project.budget_engage)} danger={overBudget} />
       </div>
 
       <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: "18px 22px" }}>

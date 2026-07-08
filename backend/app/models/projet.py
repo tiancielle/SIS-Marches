@@ -13,3 +13,4 @@ class Projet(Base):
     fin = Column(Date, nullable=False)
     statut = Column(String, nullable=False, default="actif")  # "actif" | "termine"
     chef = Column(String, nullable=False)
+    budget_engage = Column(Float, nullable=True, default=0)

@@ -3,7 +3,7 @@ import Modal from "../../components/ui/Modal";
 import Field from "../../components/ui/Field";
 import { C, FONT } from "../../styles/theme";
 
-const EMPTY = { nom: "", client: "", lieu: "", chef: "", budget: "", budgetEngage: "", debut: "", fin: "", statut: "actif" };
+const EMPTY = { nom: "", client: "", lieu: "", chef: "", budget: "", budget_engage: "", debut: "", fin: "", statut: "actif" };
 
 export default function ProjectForm({ initial, onClose, onSave }) {
   const [form, setForm] = useState(EMPTY);
@@ -22,7 +22,7 @@ export default function ProjectForm({ initial, onClose, onSave }) {
     if (!canSave || saving) return;
     setSaving(true);
     try {
-      await onSave({ ...form, budget: Number(form.budget) || 0, budgetEngage: Number(form.budgetEngage) || 0 });
+      await onSave({ ...form, budget: Number(form.budget) || 0, budget_engage: Number(form.budget_engage) || 0 });
     } finally {
       setSaving(false);
     }
@@ -49,17 +49,14 @@ export default function ProjectForm({ initial, onClose, onSave }) {
       <Field label="Client" value={form.client} onChange={set("client")} required />
       <Field label="Lieu" value={form.lieu} onChange={set("lieu")} />
       <Field label="Chef de projet" value={form.chef} onChange={set("chef")} />
-
       <div style={{ display: "flex", gap: 12 }}>
         <div style={{ flex: 1 }}><Field label="Budget total (DH)" value={form.budget} onChange={set("budget")} type="number" /></div>
-        <div style={{ flex: 1 }}><Field label="Budget engagé (DH)" value={form.budgetEngage} onChange={set("budgetEngage")} type="number" /></div>
+        <div style={{ flex: 1 }}><Field label="Budget engagé (DH)" value={form.budget_engage} onChange={set("budget_engage")} type="number" /></div>
       </div>
-
       <div style={{ display: "flex", gap: 12 }}>
         <div style={{ flex: 1 }}><Field label="Début" value={form.debut} onChange={set("debut")} type="date" required /></div>
         <div style={{ flex: 1 }}><Field label="Fin prévue" value={form.fin} onChange={set("fin")} type="date" required /></div>
       </div>
-
       <div style={{ marginBottom: 14 }}>
         <label style={{ display: "block", fontFamily: FONT, fontSize: 12, color: C.mute, marginBottom: 5, fontWeight: 600 }}>
           Statut

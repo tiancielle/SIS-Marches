@@ -6,6 +6,7 @@ import {
   updateSousTraitantApi,
   deleteSousTraitantApi,
 } from "../api/sousTraitants";
+import { fetchContrats, createContrat, updateContrat, deleteContrat } from "../api/contrats";
 import { SEED_HISTORY_BY_PROJECT } from "../lib/mockData";
 
 const DataContext = createContext(null);
@@ -13,6 +14,7 @@ const DataContext = createContext(null);
 export function DataProvider({ children }) {
   const [projects, setProjects] = useState([]);
   const [subs, setSubs] = useState([]);
+  const [contrats, setContrats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -22,15 +24,16 @@ export function DataProvider({ children }) {
   const [historyByProject] = useState(SEED_HISTORY_BY_PROJECT);
 
   // --- 1) Chargement initial depuis l'API (remplace SEED_PROJETS / SEED_SUBS) ---
-  useEffect(() => {
-    Promise.all([fetchProjects(), fetchSousTraitants()])
-      .then(([projectsData, subsData]) => {
-        setProjects(projectsData);
-        setSubs(subsData);
-      })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, []);
+useEffect(() => {
+  Promise.all([fetchProjects(), fetchSousTraitants(), fetchContrats()])
+    .then(([projectsData, subsData, contratsData]) => {
+      setProjects(projectsData);
+      setSubs(subsData);
+      setContrats(contratsData);
+    })
+    .catch((err) => setError(err.message))
+    .finally(() => setLoading(false));
+}, []);
 
   // --- 2) CRUD Projets — chaque fonction appelle l'API, puis met à jour le state local ---
   const addProject = async (data) => {
@@ -78,7 +81,25 @@ export function DataProvider({ children }) {
     });
   };
 
-  // --- 4) Affectation sous-traitant ↔ projet (local, en attendant le vrai Contrat) ---
+  // --- 4) CRUD Contrats ---
+  const addContrat = async (data) => {
+    const created = await createContrat(data);
+    setContrats((prev) => [...prev, created]);
+    return created;
+  };
+
+  const editContrat = async (id, data) => {
+    const updated = await updateContrat(id, data);
+    setContrats((prev) => prev.map((c) => (c.id === id ? updated : c)));
+    return updated;
+  };
+
+  const removeContrat = async (id) => {
+    await deleteContrat(id);
+    setContrats((prev) => prev.filter((c) => c.id !== id));
+  };
+
+  // --- 5) Affectation sous-traitant ↔ projet (local, en attendant le vrai Contrat) ---
   const assignSubToProject = (projectId, subId, contratRef, file) => {
     setSubsByProject((prev) => {
       const list = prev[projectId] || [];
@@ -122,6 +143,9 @@ export function DataProvider({ children }) {
       })
       .filter(Boolean);
 
+  const getContratsForProject = (projetId) =>
+    contrats.filter((c) => c.projet_id === projetId);
+
   const subProjectCount = (subId) =>
     Object.values(subsByProject).filter((list) => list.some((e) => e.subId === subId)).length;
 
@@ -135,6 +159,7 @@ export function DataProvider({ children }) {
       value={{
         projects, addProject, updateProject, deleteProject,
         subs, addSub, updateSub, deleteSub,
+        contrats, addContrat, editContrat, removeContrat, getContratsForProject,
         assignSubToProject, unassignSub,
         getSubsForProject, subProjectCount, projectsForSub, getHistoryForProject,
         loading, error,

@@ -20,8 +20,7 @@ function EditRow({ label, value, onChange, type = "text" }) {
 
 export default function ProjectInfoEdit({ project, onSave, onCancel }) {
   // Correctif : on spread l'intégralité de l'objet project pour ne perdre aucun champ (nom, statut, etc.)
-  const [form, setForm] = useState({ ...project, budgetEngage: project.budgetEngage || 0 });
-  
+  const [form, setForm] = useState({ ...project, budget_engage: project.budget_engage || 0 });
   const [saving, setSaving] = useState(false);
 
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value }));
@@ -31,7 +30,7 @@ export default function ProjectInfoEdit({ project, onSave, onCancel }) {
     if (!canSave || saving) return;
     setSaving(true);
     try {
-      await onSave({ ...form, budget: Number(form.budget) || 0, budgetEngage: Number(form.budgetEngage) || 0 });
+      await onSave({ ...form, budget: Number(form.budget) || 0, budget_engage: Number(form.budget_engage) || 0 });
     } finally {
       setSaving(false);
     }
@@ -45,7 +44,7 @@ export default function ProjectInfoEdit({ project, onSave, onCancel }) {
           <EditRow label="Lieu" value={form.lieu} onChange={set("lieu")} />
           <EditRow label="Chef de projet" value={form.chef} onChange={set("chef")} />
           <EditRow label="Budget total" value={form.budget} onChange={set("budget")} type="number" />
-          <EditRow label="Budget engagé" value={form.budgetEngage} onChange={set("budgetEngage")} type="number" />
+          <EditRow label="Budget engagé" value={form.budget_engage} onChange={set("budget_engage")} type="number" />
         </div>
         <div style={{ background: C.card, border: `1px solid ${C.accent}`, borderRadius: 8, padding: "18px 22px" }}>
           <EditRow label="Début" value={form.debut} onChange={set("debut")} type="date" />

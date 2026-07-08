@@ -50,6 +50,12 @@ export const SEED_HISTORY_BY_PROJECT = {
   ],
 };
 
+export const SEED_EQUIPE = [
+  { id: 1, nom: "Y. Alaoui", intitule: "Chef de projet junior", type: "interne", email: "y.alaoui@sis.ma", phone: "+212 661 22 33 44" },
+  { id: 2, nom: "R. Cherkaoui", intitule: "Ingénieur études", type: "interne", email: "r.cherkaoui@sis.ma", phone: "+212 662 33 44 55" },
+  { id: 3, nom: "M. Belhaj", intitule: "Consultant BTP", type: "freelance", email: "m.belhaj@gmail.com", phone: "+212 663 44 55 66" },
+];
+
 export const fmt = (n) => new Intl.NumberFormat("fr-FR").format(Math.round(n)) + " DH";
 export const fmtDate = (d) =>
   new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });

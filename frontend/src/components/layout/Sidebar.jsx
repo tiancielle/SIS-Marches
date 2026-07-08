@@ -2,6 +2,7 @@ import React from "react";
 import { NavLink } from "react-router-dom";
 import { LayoutDashboard, FolderKanban, Users, FileText, Receipt, Wallet } from "lucide-react";
 import { C, FONT } from "../../styles/theme";
+import { Users2 } from "lucide-react";
 
 // Un item = une route. On respecte l'ordre de construction :
 // Projects et SousTraitants d'abord, Dashboard en dernier (mais affiché en haut par convention).
@@ -12,6 +13,7 @@ const ITEMS = [
   { to: "/contrats", label: "Contrats", icon: FileText },
   { to: "/factures", label: "Factures", icon: Receipt },
   { to: "/paiements", label: "Paiements", icon: Wallet },
+  { to: "/equipe", label: "Équipe", icon: Users2 },
 ];
 
 export default function Sidebar() {

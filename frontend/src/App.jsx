@@ -8,6 +8,8 @@ import SubsView from "./pages/SousTraitants/SubsView";
 import SubDetail from "./pages/SousTraitants/SubDetail";
 import ContratsView from "./pages/Contrats/ContratsView";
 import ContratDetail from "./pages/Contrats/ContratDetail";
+import EquipeView from "./pages/Equipe/EquipeView";
+import EquipeDetail from "./pages/Equipe/EquipeDetail";
 
 function Placeholder({ label }) {
   return <div style={{ padding: 32, color: "#6B7280", fontSize: 14 }}>{label} — à venir</div>;
@@ -30,9 +32,12 @@ export default function App() {
 
             <Route path="/contrats" element={<ContratsView />} />
             <Route path="/contrats/:id" element={<ContratDetail />} />
-            
+
             <Route path="/factures" element={<Placeholder label="Factures" />} />
             <Route path="/paiements" element={<Placeholder label="Paiements" />} />
+
+            <Route path="/equipe" element={<EquipeView />} />
+            <Route path="/equipe/:id" element={<EquipeDetail />} />
 
           </Route>
         </Routes>

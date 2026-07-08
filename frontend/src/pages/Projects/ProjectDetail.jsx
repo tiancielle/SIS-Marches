@@ -10,11 +10,13 @@ import { C, FONT } from "../../styles/theme";
 import ProjectInfoTab from "./tabs/ProjectInfoTab";
 import ProjectInfoEdit from "./tabs/ProjectInfoEdit";
 import ProjectSubsTab from "./tabs/ProjectSubsTab";
+import ProjectDCETab from "./tabs/ProjectDCETab"; 
 import ProjectHistoryTab from "./tabs/ProjectHistoryTab";
 
 const TABS = [
   { key: "infos", label: "Infos générales" },
   { key: "subs", label: "Sous-traitants" },
+  { key: "dce", label: "DCE" }, // ← Ajout de l'onglet
   { key: "historique", label: "Historique" },
 ];
 
@@ -113,6 +115,7 @@ export default function ProjectDetail() {
           <>
             {tab === "infos" && <ProjectInfoTab project={project} />}
             {tab === "subs" && <ProjectSubsTab projectId={project.id} />}
+            {tab === "dce" && <ProjectDCETab projectId={project.id} />} {/* ← Ajout du rendu conditionnel */}
             {tab === "historique" && <ProjectHistoryTab projectId={project.id} />}
           </>
         )}

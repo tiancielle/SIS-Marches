@@ -20,7 +20,7 @@ function Row({ label, value }) {
 export default function ContratDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { contrats, projects, subs, editContrat, removeContrat } = useData();
+  const { contrats, projects, subs, editContrat, removeContrat, setContratFile, contratFiles } = useData();
   const [showForm, setShowForm] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -30,6 +30,7 @@ export default function ContratDetail() {
 
   const projet = projects.find((p) => p.id === contrat.projet_id);
   const sub = subs.find((s) => s.id === contrat.sous_traitant_id);
+  const fileEntry = contratFiles[contrat.id];
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -77,6 +78,16 @@ export default function ContratDetail() {
           <Row label="Date début" value={fmtDate(contrat.date_debut)} />
           <Row label="Date fin" value={fmtDate(contrat.date_fin)} />
           <Row label="Document" value={contrat.document_nom || "Aucun"} />
+          {fileEntry && (
+            <div style={{ padding: "11px 0" }}>
+              <span
+                onClick={() => window.open(fileEntry.fileUrl, "_blank")}
+                style={{ color: C.accent, fontFamily: FONT, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+              >
+                📄 Voir le fichier ({fileEntry.fileName})
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -84,7 +95,8 @@ export default function ContratDetail() {
         <ContratForm
           initial={contrat}
           onClose={() => setShowForm(false)}
-          onSave={async (data) => { await editContrat(contrat.id, data); setShowForm(false); }}
+          onSave={(data) => editContrat(contrat.id, data)}
+          onFileSelected={(id, file) => setContratFile(id, file)}
         />
       )}
 

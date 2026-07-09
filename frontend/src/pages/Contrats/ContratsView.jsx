@@ -11,7 +11,7 @@ import { C, FONT } from "../../styles/theme";
 
 export default function ContratsView() {
   const navigate = useNavigate();
-  const { contrats, projects, subs, addContrat } = useData();
+  const { contrats, projects, subs, addContrat, setContratFile } = useData();
   const [query, setQuery] = useState("");
   const [projetFilter, setProjetFilter] = useState("");
   const [sort, setSort] = useState({ key: "reference", dir: "asc" });
@@ -80,7 +80,11 @@ export default function ContratsView() {
       </div>
 
       {showForm && (
-        <ContratForm onClose={() => setShowForm(false)} onSave={async (data) => { await addContrat(data); setShowForm(false); }} />
+        <ContratForm
+          onClose={() => setShowForm(false)}
+          onSave={(data) => addContrat(data)}
+          onFileSelected={(id, file) => setContratFile(id, file)}
+        />
       )}
     </div>
   );

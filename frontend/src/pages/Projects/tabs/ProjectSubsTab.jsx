@@ -1,45 +1,39 @@
 import React, { useState } from "react";
-import { FileText, FileX, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Trash2 } from "lucide-react";
 import Table from "../../../components/ui/Table";
-import AssignSubModal from "./AssignSubModal";
+import Badge from "../../../components/ui/Badge";
+import ContratForm from "../../Contrats/ContratForm";
 import { useData } from "../../../context/DataContext";
+import { fmt, fmtDate } from "../../../lib/mockData";
 import { C, FONT } from "../../../styles/theme";
 
 export default function ProjectSubsTab({ projectId }) {
-  const { getSubsForProject, unassignSub } = useData();
-  const rows = getSubsForProject(projectId);
-  const [showAssign, setShowAssign] = useState(false);
+  const navigate = useNavigate();
+  const { getContratsForProject, subs, addContrat, removeContrat } = useData();
+  const [showForm, setShowForm] = useState(false);
+
+  const rows = getContratsForProject(projectId).map((c) => {
+    const sub = subs.find((s) => s.id === c.sous_traitant_id);
+    return { ...c, subName: sub?.name || "—", specialite: sub?.specialite || "—", contact: sub?.contact || "—" };
+  });
 
   const columns = [
-    { key: "name", label: "Sous-traitant" },
+    { key: "subName", label: "Sous-traitant" },
     { key: "specialite", label: "Spécialité" },
-    { key: "contact", label: "Contact" },
-    {
-      key: "contrat", label: "Contrat & document",
-      render: (r) => r.fileUrl ? (
-        <span
-          onClick={(e) => { e.stopPropagation(); window.open(r.fileUrl, "_blank"); }}
-          style={{ display: "flex", alignItems: "center", gap: 6, color: C.accent, fontFamily: FONT, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-        >
-          <FileText size={14} /> {r.contratRef}
-        </span>
-      ) : r.contratRef ? (
-        <span style={{ fontFamily: FONT, fontSize: 13, color: C.ink }}>{r.contratRef}</span>
-      ) : (
-        <span style={{ display: "flex", alignItems: "center", gap: 6, color: C.faint, fontFamily: FONT, fontSize: 13 }}>
-          <FileX size={14} /> Aucun document
-        </span>
-      ),
-    },
+    { key: "reference", label: "Contrat" },
+    { key: "montant", label: "Montant", render: (r) => fmt(r.montant) },
+    { key: "date_fin", label: "Échéance", render: (r) => fmtDate(r.date_fin) },
+    { key: "statut", label: "Statut", render: (r) => <Badge status={r.statut} /> },
     {
       key: "actions", label: "",
       render: (r) => (
         <button
-          onClick={(e) => { e.stopPropagation(); unassignSub(projectId, r.id); }}
-          title="Retirer ce sous-traitant du projet"
-          style={{ background: "none", border: "none", cursor: "pointer", color: C.faint, display: "flex", alignItems: "center" }}
+          onClick={(e) => { e.stopPropagation(); if (window.confirm(`Supprimer le contrat ${r.reference} ?`)) removeContrat(r.id); }}
+          title="Supprimer ce contrat"
+          style={{ background: "none", border: "none", cursor: "pointer", color: C.faint, display: "flex" }}
         >
-          <X size={14} />
+          <Trash2 size={14} />
         </button>
       ),
     },
@@ -49,19 +43,27 @@ export default function ProjectSubsTab({ projectId }) {
     <div>
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
         <button
-          onClick={() => setShowAssign(true)}
-          style={{
-            fontFamily: FONT, fontSize: 13, fontWeight: 600, color: C.accent,
-            background: C.accentLt, border: "none", borderRadius: 6, padding: "7px 12px", cursor: "pointer"
-          }}
+          onClick={() => setShowForm(true)}
+          style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: C.accent, background: C.accentLt, border: "none", borderRadius: 6, padding: "7px 12px", cursor: "pointer" }}
         >
-          + Affecter un sous-traitant
+          + Affecter un sous-traitant (nouveau contrat)
         </button>
       </div>
-      <Table columns={columns} rows={rows} />
 
-      {showAssign && (
-        <AssignSubModal projectId={projectId} onClose={() => setShowAssign(false)} />
+      {rows.length > 0 ? (
+        <Table columns={columns} rows={rows} onRowClick={(row) => navigate(`/contrats/${row.id}`)} />
+      ) : (
+        <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: 32, textAlign: "center", fontFamily: FONT, fontSize: 13, color: C.faint }}>
+          Aucun sous-traitant affecté pour l'instant.
+        </div>
+      )}
+
+      {showForm && (
+        <ContratForm
+          fixedProjectId={projectId}
+          onClose={() => setShowForm(false)}
+          onSave={async (data) => { await addContrat(data); setShowForm(false); }}
+        />
       )}
     </div>
   );

@@ -9,6 +9,7 @@ from app.models import projet, sous_traitant  # noqa: F401 — nécessaire pour 
 
 from app.models import contrat  # noqa: F401
 from app.models import dce  # noqa: F401
+from app.models import equipe, projet_equipe  
 
 Base.metadata.create_all(bind=engine)
 

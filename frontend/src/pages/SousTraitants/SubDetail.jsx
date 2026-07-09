@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { ChevronRight, Pencil, Trash2 } from "lucide-react";
 import { useData } from "../../context/DataContext";
-import { fmtDate } from "../../lib/mockData";
+import { fmt, fmtDate } from "../../lib/mockData";
 import Table from "../../components/ui/Table";
 import Badge from "../../components/ui/Badge";
 import SubForm from "./SubForm";
@@ -20,13 +20,14 @@ function Row({ label, value }) {
 export default function SubDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { subs, updateSub, deleteSub, projectsForSub } = useData();
+  const { subs, updateSub, deleteSub, projectsForSub, getContratsForSub, projects } = useData();
   const [showForm, setShowForm] = useState(false);
 
   const sub = subs.find((s) => String(s.id) === id);
   if (!sub) return <div style={{ padding: 32, color: C.faint }}>Sous-traitant introuvable.</div>;
 
-  const projects = projectsForSub(sub.id);
+  const subProjects = projectsForSub(sub.id);
+  const subContrats = getContratsForSub(sub.id);
 
   const columns = [
     { key: "nom", label: "Projet" },
@@ -79,7 +80,7 @@ export default function SubDetail() {
           </div>
           <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: "18px 22px" }}>
             <Row label="ICE" value={sub.ice} />
-            <Row label="Projets affectés" value={projects.length} />
+            <Row label="Projets affectés" value={subProjects.length} />
           </div>
         </div>
 
@@ -87,14 +88,36 @@ export default function SubDetail() {
           <div style={{ fontFamily: FONT, fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 10 }}>
             Projets où intervient {sub.name}
           </div>
-          {projects.length > 0 ? (
-            <Table columns={columns} rows={projects} onRowClick={(row) => navigate(`/projects/${row.id}`)} />
+          {subProjects.length > 0 ? (
+            <Table columns={columns} rows={subProjects} onRowClick={(row) => navigate(`/projects/${row.id}`)} />
           ) : (
             <div style={{
               background: C.card, border: `1px solid ${C.line}`, borderRadius: 8,
               padding: 32, textAlign: "center", fontFamily: FONT, fontSize: 13, color: C.faint
             }}>
               Aucun projet associé pour l'instant.
+            </div>
+          )}
+        </div>
+
+        <div>
+          <div style={{ fontFamily: FONT, fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 10 }}>
+            Contrats de {sub.name}
+          </div>
+          {subContrats.length > 0 ? (
+            <Table
+              columns={[
+                { key: "reference", label: "Référence" },
+                { key: "projet", label: "Projet", render: (r) => projects.find((p) => p.id === r.projet_id)?.nom || "—" },
+                { key: "montant", label: "Montant", render: (r) => fmt(r.montant) },
+                { key: "statut", label: "Statut", render: (r) => <Badge status={r.statut} /> },
+              ]}
+              rows={subContrats}
+              onRowClick={(row) => navigate(`/contrats/${row.id}`)}
+            />
+          ) : (
+            <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: 32, textAlign: "center", fontFamily: FONT, fontSize: 13, color: C.faint }}>
+              Aucun contrat pour ce sous-traitant.
             </div>
           )}
         </div>

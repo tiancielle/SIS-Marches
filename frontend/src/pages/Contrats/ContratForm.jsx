@@ -6,21 +6,22 @@ import { C, FONT } from "../../styles/theme";
 
 const EMPTY = { projet_id: "", sous_traitant_id: "", reference: "", montant: "", date_debut: "", date_fin: "", statut: "actif", document_nom: "" };
 
-export default function ContratForm({ initial, onClose, onSave }) {
+export default function ContratForm({ initial, fixedProjectId, onClose, onSave, onFileSelected }) {
   const { projects, subs } = useData();
   const [form, setForm] = useState(EMPTY);
+  const [file, setFile] = useState(null);
   const [saving, setSaving] = useState(false);
 
-useEffect(() => {
-  if (initial) {
-    const sanitized = Object.fromEntries(
-      Object.entries(initial).map(([key, value]) => [key, value === null ? "" : value])
-    );
-    setForm({ ...EMPTY, ...sanitized });
-  } else {
-    setForm({ ...EMPTY, projet_id: projects[0]?.id || "", sous_traitant_id: subs[0]?.id || "" });
-  }
-}, [initial]);
+  useEffect(() => {
+    if (initial) {
+      const sanitized = Object.fromEntries(
+        Object.entries(initial).map(([key, value]) => [key, value === null ? "" : value])
+      );
+      setForm({ ...EMPTY, ...sanitized });
+    } else {
+      setForm({ ...EMPTY, projet_id: fixedProjectId || projects[0]?.id || "", sous_traitant_id: subs[0]?.id || "" });
+    }
+  }, [initial, fixedProjectId]);
 
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value }));
   const canSave = form.projet_id && form.sous_traitant_id && form.reference.trim() && form.date_debut && form.date_fin;
@@ -29,12 +30,10 @@ useEffect(() => {
     if (!canSave || saving) return;
     setSaving(true);
     try {
-      await onSave({
-        ...form,
-        projet_id: Number(form.projet_id),
-        sous_traitant_id: Number(form.sous_traitant_id),
-        montant: Number(form.montant) || 0,
-      });
+      const payload = { ...form, projet_id: Number(form.projet_id), sous_traitant_id: Number(form.sous_traitant_id), montant: Number(form.montant) || 0 };
+      if (file) payload.document_nom = file.name; // le nom réel remplace la saisie manuelle si un fichier est choisi
+      const result = await onSave(payload);       // onSave doit maintenant RETOURNER le contrat (créé ou mis à jour)
+      if (file && result?.id) onFileSelected?.(result.id, file);
     } finally {
       setSaving(false);
     }
@@ -57,12 +56,14 @@ useEffect(() => {
         </>
       }
     >
-      <div style={{ marginBottom: 14 }}>
-        <label style={labelStyle}>Projet</label>
-        <select value={form.projet_id} onChange={(e) => set("projet_id")(e.target.value)} style={selectStyle}>
-          {projects.map((p) => <option key={p.id} value={p.id}>{p.nom}</option>)}
-        </select>
-      </div>
+      {!fixedProjectId && (
+        <div style={{ marginBottom: 14 }}>
+          <label style={labelStyle}>Projet</label>
+          <select value={form.projet_id} onChange={(e) => set("projet_id")(e.target.value)} style={selectStyle}>
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.nom}</option>)}
+          </select>
+        </div>
+      )}
 
       <div style={{ marginBottom: 14 }}>
         <label style={labelStyle}>Sous-traitant</label>
@@ -88,9 +89,13 @@ useEffect(() => {
         </select>
       </div>
 
-      <Field label="Nom du document (facultatif)" value={form.document_nom} onChange={set("document_nom")} />
-      <div style={{ fontFamily: FONT, fontSize: 11.5, color: C.faint, marginTop: -8 }}>
-        ⚠ Le stockage réel du fichier n'est pas encore géré — juste son nom pour l'instant.
+      <Field label="Nom du document" value={form.document_nom} onChange={set("document_nom")} />
+      <div style={{ marginBottom: 4 }}>
+        <label style={labelStyle}>Fichier du contrat (facultatif)</label>
+        <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ fontFamily: FONT, fontSize: 13 }} />
+        <div style={{ fontFamily: FONT, fontSize: 11.5, color: C.faint, marginTop: 4 }}>
+          ⚠ Stockage temporaire (navigateur), perdu au rafraîchissement — en attendant le vrai stockage backend.
+        </div>
       </div>
     </Modal>
   );

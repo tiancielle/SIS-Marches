@@ -23,11 +23,13 @@ export function DataProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // subsByProject, equipeByProject et historyByProject restent en local pour l'instant :
-  // Contrat n'existe pas encore côté backend (étape 5 de notre plan).
-  const [subsByProject, setSubsByProject] = useState({});
+  // equipeByProject et historyByProject restent en local pour l'instant
   const [equipeByProject, setEquipeByProject] = useState({}); // { projetId: [{ membreId, role }] }
   const [historyByProject] = useState(SEED_HISTORY_BY_PROJECT);
+
+  // State pour les fichiers (le backend n'a qu'un champ texte document_nom, pas de vrai stockage)
+  const [contratFiles, setContratFilesState] = useState({}); // { contratId: { fileUrl, fileName } }
+  const [dceFiles, setDceFilesState] = useState({}); // { dceId: { fileUrl, fileName } }
 
   // --- 1) Chargement initial depuis l'API (remplace SEED_PROJETS / SEED_SUBS) ---
   useEffect(() => {
@@ -58,11 +60,6 @@ export function DataProvider({ children }) {
   const deleteProject = async (id) => {
     await deleteProjectApi(id);
     setProjects((prev) => prev.filter((p) => p.id !== id));
-    setSubsByProject((prev) => {
-      const copy = { ...prev };
-      delete copy[id];
-      return copy;
-    });
     setEquipeByProject((prev) => {
       const copy = { ...prev };
       delete copy[id];
@@ -86,11 +83,6 @@ export function DataProvider({ children }) {
   const deleteSub = async (id) => {
     await deleteSousTraitantApi(id);
     setSubs((prev) => prev.filter((s) => s.id !== id));
-    setSubsByProject((prev) => {
-      const copy = {};
-      for (const key in prev) copy[key] = prev[key].filter((e) => e.subId !== id);
-      return copy;
-    });
   };
 
   // --- 4) CRUD Contrats ---
@@ -129,34 +121,7 @@ export function DataProvider({ children }) {
     setDceList((prev) => prev.filter((d) => d.id !== id));
   };
 
-  // --- 6) Affectation sous-traitant ↔ projet (local, en attendant le vrai Contrat) ---
-  const assignSubToProject = (projectId, subId, contratRef, file) => {
-    setSubsByProject((prev) => {
-      const list = prev[projectId] || [];
-      return {
-        ...prev,
-        [projectId]: [
-          ...list,
-          {
-            subId,
-            contratRef: contratRef || null,
-            document: !!file,
-            fileUrl: file ? URL.createObjectURL(file) : null,
-            fileName: file ? file.name : null,
-          },
-        ],
-      };
-    });
-  };
-
-  const unassignSub = (projectId, subId) => {
-    setSubsByProject((prev) => ({
-      ...prev,
-      [projectId]: (prev[projectId] || []).filter((e) => e.subId !== subId),
-    }));
-  };
-
-  // --- 7) CRUD Équipe (local, pas encore d'API) ---
+  // --- 6) CRUD Équipe (local, pas encore d'API) ---
   const addEquipeMembre = (data) => {
     setEquipe((prev) => [...prev, { id: nextEquipeId++, ...data }]);
   };
@@ -174,7 +139,7 @@ export function DataProvider({ children }) {
     });
   };
 
-  // --- 8) Affectation équipe ↔ projet ---
+  // --- 7) Affectation équipe ↔ projet ---
   const assignEquipeToProject = (projectId, membreId, role) => {
     setEquipeByProject((prev) => {
       const list = prev[projectId] || [];
@@ -189,25 +154,23 @@ export function DataProvider({ children }) {
     }));
   };
 
-  // --- Sélecteurs dérivés — inchangés, toujours basés sur l'état LIVE ---
-  const getSubsForProject = (projectId) =>
-    (subsByProject[projectId] || [])
-      .map((entry) => {
-        const sub = subs.find((s) => s.id === entry.subId);
-        return sub
-          ? {
-              ...sub,
-              contratRef: entry.contratRef,
-              document: entry.document,
-              fileUrl: entry.fileUrl,
-              fileName: entry.fileName,
-            }
-          : null;
-      })
-      .filter(Boolean);
+  // --- 8) Gestion des fichiers (stockage local) ---
+  const setContratFile = (contratId, file) => {
+    if (!file) return;
+    setContratFilesState((prev) => ({ ...prev, [contratId]: { fileUrl: URL.createObjectURL(file), fileName: file.name } }));
+  };
 
+  const setDceFile = (dceId, file) => {
+    if (!file) return;
+    setDceFilesState((prev) => ({ ...prev, [dceId]: { fileUrl: URL.createObjectURL(file), fileName: file.name } }));
+  };
+
+  // --- Sélecteurs dérivés — basés sur l'état LIVE ---
   const getContratsForProject = (projetId) =>
     contrats.filter((c) => c.projet_id === projetId);
+
+  // Nouveau sélecteur pour les contrats d'un sous-traitant
+  const getContratsForSub = (subId) => contrats.filter((c) => c.sous_traitant_id === subId);
 
   // Relation 1:1 pour le DCE, donc .find au lieu de .filter
   const getDCEForProject = (projetId) =>
@@ -224,11 +187,12 @@ export function DataProvider({ children }) {
   const projectsForEquipeMembre = (membreId) =>
     projects.filter((p) => (equipeByProject[p.id] || []).some((e) => e.membreId === membreId));
 
+  // Sélecteurs sous-traitants maintenant basés sur les vrais contrats
   const subProjectCount = (subId) =>
-    Object.values(subsByProject).filter((list) => list.some((e) => e.subId === subId)).length;
+    contrats.filter((c) => c.sous_traitant_id === subId).length;
 
   const projectsForSub = (subId) =>
-    projects.filter((p) => (subsByProject[p.id] || []).some((e) => e.subId === subId));
+    projects.filter((p) => contrats.some((c) => c.sous_traitant_id === subId && c.projet_id === p.id));
 
   const getHistoryForProject = (projectId) => historyByProject[projectId] || [];
 
@@ -237,12 +201,13 @@ export function DataProvider({ children }) {
       value={{
         projects, addProject, updateProject, deleteProject,
         subs, addSub, updateSub, deleteSub,
-        contrats, addContrat, editContrat, removeContrat, getContratsForProject,
+        contrats, addContrat, editContrat, removeContrat, getContratsForProject, getContratsForSub,
+        contratFiles, setContratFile,
         dceList, addDCE, editDCE, removeDCE, getDCEForProject,
-        assignSubToProject, unassignSub,
+        dceFiles, setDceFile,
         equipe, addEquipeMembre, updateEquipeMembre, removeEquipeMembre,
         assignEquipeToProject, unassignEquipe, getEquipeForProject, projectsForEquipeMembre,
-        getSubsForProject, subProjectCount, projectsForSub, getHistoryForProject,
+        subProjectCount, projectsForSub, getHistoryForProject,
         loading, error,
       }}
     >

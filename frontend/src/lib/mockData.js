@@ -60,6 +60,25 @@ export const fmt = (n) => new Intl.NumberFormat("fr-FR").format(Math.round(n)) +
 export const fmtDate = (d) =>
   new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
 
+export const SEED_MARCHES = [
+  {
+    id: 1, reference: "AO-2026-0342", objet: "Prestations d'assistance technique pour la digitalisation des services administratifs",
+    organisme: "Ministère de la Transition Numérique", date_limite_remise: "2026-08-15",
+    montant_estimatif: 1800000, type_procedure: "Appel d'offres ouvert",
+    url_avis: "https://www.marchespublics.gov.ma", url_cps: "",
+    date_import: "2026-07-10", statut: "nouveau",
+  },
+  {
+    id: 1, reference: "AO-2026-0342", objet: "Prestations d'assistance technique pour la digitalisation des services administratifs",
+    organisme: "Ministère de la Transition Numérique", date_limite_remise: "2026-08-15",
+    montant_estimatif: 1800000, type_procedure: "Appel d'offres ouvert",
+    url_avis: "https://www.marchespublics.gov.ma", url_cps: "",
+    date_import: "2026-07-10", statut: "nouveau",
+  },
+];
+
+export const SEED_ANALYSES = []; // vide au départ, rempli quand on clique "Analyser"
+
 
 
 

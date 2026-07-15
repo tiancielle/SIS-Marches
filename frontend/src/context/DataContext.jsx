@@ -8,43 +8,57 @@ import {
 } from "../api/sousTraitants";
 import { fetchContrats, createContrat, updateContrat, deleteContrat } from "../api/contrats";
 import { fetchDCEList, createDCE, updateDCE, deleteDCE } from "../api/dce";
-import { SEED_HISTORY_BY_PROJECT, SEED_EQUIPE } from "../lib/mockData";
+import { fetchEquipe, createEquipeMembre, updateEquipeMembre as updateEquipeMembreApi, deleteEquipeMembre } from "../api/equipe";
+import { fetchProjetEquipe, assignEquipeApi, removeProjetEquipeApi } from "../api/projetEquipe";
+import { SEED_MARCHES, SEED_ANALYSES } from "../lib/mockData";
 
 const DataContext = createContext(null);
 
-let nextEquipeId = SEED_EQUIPE.length + 1;
+let nextMarcheId = SEED_MARCHES.length + 1;
+let nextAnalyseId = 1;
 
 export function DataProvider({ children }) {
   const [projects, setProjects] = useState([]);
   const [subs, setSubs] = useState([]);
   const [contrats, setContrats] = useState([]);
   const [dceList, setDceList] = useState([]);
-  const [equipe, setEquipe] = useState(SEED_EQUIPE);
+  const [equipe, setEquipe] = useState([]);
+  const [equipeAssignments, setEquipeAssignments] = useState([]); // réponse enrichie de l'API (nom/intitule/... déjà joints)
+  const [marches, setMarches] = useState(SEED_MARCHES);
+  const [analyses, setAnalyses] = useState(SEED_ANALYSES);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // equipeByProject et historyByProject restent en local pour l'instant
-  const [equipeByProject, setEquipeByProject] = useState({}); // { projetId: [{ membreId, role }] }
-  const [historyByProject] = useState(SEED_HISTORY_BY_PROJECT);
+  // historyByProject devient un vrai state mutable (plus une const figée)
+  const [historyByProject, setHistoryByProject] = useState({});
 
   // State pour les fichiers (le backend n'a qu'un champ texte document_nom, pas de vrai stockage)
   const [contratFiles, setContratFilesState] = useState({}); // { contratId: { fileUrl, fileName } }
   const [dceFiles, setDceFilesState] = useState({}); // { dceId: { fileUrl, fileName } }
 
-  // --- 1) Chargement initial depuis l'API (remplace SEED_PROJETS / SEED_SUBS) ---
+  // --- 1) Chargement initial depuis l'API ---
   useEffect(() => {
-    Promise.all([fetchProjects(), fetchSousTraitants(), fetchContrats(), fetchDCEList()])
-      .then(([projectsData, subsData, contratsData, dceData]) => {
+    Promise.all([
+      fetchProjects(),
+      fetchSousTraitants(),
+      fetchContrats(),
+      fetchDCEList(),
+      fetchEquipe(),
+      fetchProjetEquipe(),
+    ])
+      .then(([projectsData, subsData, contratsData, dceData, equipeData, assignData]) => {
         setProjects(projectsData);
         setSubs(subsData);
         setContrats(contratsData);
         setDceList(dceData);
+        setEquipe(equipeData);
+        setEquipeAssignments(assignData);
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, []);
 
-  // --- 2) CRUD Projets — chaque fonction appelle l'API, puis met à jour le state local ---
+  // --- 2) CRUD Projets ---
   const addProject = async (data) => {
     const created = await createProjectApi(data);
     setProjects((prev) => [...prev, created]);
@@ -60,14 +74,10 @@ export function DataProvider({ children }) {
   const deleteProject = async (id) => {
     await deleteProjectApi(id);
     setProjects((prev) => prev.filter((p) => p.id !== id));
-    setEquipeByProject((prev) => {
-      const copy = { ...prev };
-      delete copy[id];
-      return copy;
-    });
+    setEquipeAssignments((prev) => prev.filter((a) => a.projet_id !== id));
   };
 
-  // --- 3) CRUD Sous-traitants — même logique ---
+  // --- 3) CRUD Sous-traitants ---
   const addSub = async (data) => {
     const created = await createSousTraitantApi(data);
     setSubs((prev) => [...prev, created]);
@@ -121,40 +131,49 @@ export function DataProvider({ children }) {
     setDceList((prev) => prev.filter((d) => d.id !== id));
   };
 
-  // --- 6) CRUD Équipe (local, pas encore d'API) ---
-  const addEquipeMembre = (data) => {
-    setEquipe((prev) => [...prev, { id: nextEquipeId++, ...data }]);
+  // --- 6) Utilitaire d'historique (frontend uniquement, éphémère) ---
+  const pushHistory = (projetId, label, detail) => {
+    setHistoryByProject((prev) => {
+      const list = prev[projetId] || [];
+      return { ...prev, [projetId]: [...list, { id: Date.now(), date: new Date().toISOString().slice(0, 10), label, detail }] };
+    });
   };
 
-  const updateEquipeMembre = (id, data) => {
-    setEquipe((prev) => prev.map((m) => (m.id === id ? { ...m, ...data } : m)));
+  // --- 7) CRUD Équipe (via API backend) ---
+  const addEquipeMembre = async (data) => {
+    const created = await createEquipeMembre(data);
+    setEquipe((prev) => [...prev, created]);
+    return created;
   };
 
-  const removeEquipeMembre = (id) => {
+  const updateEquipeMembre = async (id, data) => {
+    const updated = await updateEquipeMembreApi(id, data);
+    setEquipe((prev) => prev.map((m) => (m.id === id ? updated : m)));
+    return updated;
+  };
+
+  const removeEquipeMembre = async (id) => {
+    await deleteEquipeMembre(id);
     setEquipe((prev) => prev.filter((m) => m.id !== id));
-    setEquipeByProject((prev) => {
-      const copy = {};
-      for (const key in prev) copy[key] = prev[key].filter((e) => e.membreId !== id);
-      return copy;
-    });
+    setEquipeAssignments((prev) => prev.filter((a) => a.equipe_id !== id));
   };
 
-  // --- 7) Affectation équipe ↔ projet ---
-  const assignEquipeToProject = (projectId, membreId, role) => {
-    setEquipeByProject((prev) => {
-      const list = prev[projectId] || [];
-      return { ...prev, [projectId]: [...list, { membreId, role }] };
-    });
+  // --- 8) Affectation équipe ↔ projet (via API backend) ---
+  const assignEquipeToProject = async (projetId, equipeId, role) => {
+    const created = await assignEquipeApi({ projet_id: projetId, equipe_id: equipeId, role });
+    setEquipeAssignments((prev) => [...prev, created]);
+    const membre = equipe.find((m) => m.id === equipeId);
+    pushHistory(projetId, "Membre d'équipe affecté", `${membre?.nom || "Membre"} — ${role}`);
   };
 
-  const unassignEquipe = (projectId, membreId) => {
-    setEquipeByProject((prev) => ({
-      ...prev,
-      [projectId]: (prev[projectId] || []).filter((e) => e.membreId !== membreId),
-    }));
+  const unassignEquipe = async (assignmentId, projetId) => {
+    const assignment = equipeAssignments.find((a) => a.id === assignmentId);
+    await removeProjetEquipeApi(assignmentId);
+    setEquipeAssignments((prev) => prev.filter((a) => a.id !== assignmentId));
+    if (assignment) pushHistory(projetId, "Membre d'équipe retiré", assignment.nom);
   };
 
-  // --- 8) Gestion des fichiers (stockage local) ---
+  // --- 9) Gestion des fichiers (stockage local) ---
   const setContratFile = (contratId, file) => {
     if (!file) return;
     setContratFilesState((prev) => ({ ...prev, [contratId]: { fileUrl: URL.createObjectURL(file), fileName: file.name } }));
@@ -165,29 +184,80 @@ export function DataProvider({ children }) {
     setDceFilesState((prev) => ({ ...prev, [dceId]: { fileUrl: URL.createObjectURL(file), fileName: file.name } }));
   };
 
+  // --- 10) Marchés Publics & Analyses (Simulation frontend pour l'instant) ---
+  const addMarche = (data) => {
+    setMarches((prev) => [...prev, { id: nextMarcheId++, statut: "nouveau", date_import: new Date().toISOString().slice(0, 10), ...data }]);
+  };
+
+  const ignoreMarche = (id) => {
+    setMarches((prev) => prev.map((m) => (m.id === id ? { ...m, statut: "ignore" } : m)));
+  };
+
+  const analyserMarche = async (id) => {
+    const marche = marches.find((m) => m.id === id);
+    if (!marche) return;
+    await new Promise((r) => setTimeout(r, 600)); // simule la latence d'un appel LLM
+
+    const fauxScore = Math.floor(40 + Math.random() * 55);
+    const analyse = {
+      id: nextAnalyseId++,
+      marche_public_id: id,
+      resume: `Marché portant sur : ${marche.objet.slice(0, 100)}...`,
+      mots_cles: ["digitalisation", "assistance technique", "secteur public"],
+      technologies_detectees: ["gestion documentaire", "conseil organisationnel"],
+      score_pertinence: fauxScore,
+      justification: "Analyse simulée (frontend) — le vrai appel IA sera fait côté backend une fois l'endpoint prêt.",
+      recommandations: "À valider une fois l'analyse réelle branchée.",
+      modele_utilise: "simulation-frontend",
+      date_analyse: new Date().toISOString(),
+    };
+
+    setAnalyses((prev) => [...prev.filter((a) => a.marche_public_id !== id), analyse]);
+    setMarches((prev) => prev.map((m) => (m.id === id ? { ...m, statut: "analyse" } : m)));
+  };
+
+  const getAnalyseForMarche = (id) => analyses.find((a) => a.marche_public_id === id) || null;
+
+  const selectMarche = async (marcheId) => {
+    const marche = marches.find((m) => m.id === marcheId);
+    if (!marche) return;
+    const today = new Date().toISOString().slice(0, 10);
+
+    const createdProject = await addProject({
+      nom: marche.objet.slice(0, 80), client: marche.organisme, lieu: "", chef: "",
+      budget: marche.montant_estimatif || 0, budget_engage: 0,
+      debut: today, fin: marche.date_limite_remise || today, statut: "brouillon",
+    });
+
+    await addDCE({
+      projet_id: createdProject.id, objet: marche.objet, organisme: marche.organisme,
+      montant_estimatif: marche.montant_estimatif, date_limite_remise: marche.date_limite_remise,
+      type_procedure: marche.type_procedure, pieces_exigees: "", document_nom: null,
+    });
+
+    setMarches((prev) => prev.map((m) => (m.id === marcheId ? { ...m, statut: "converti" } : m)));
+    return createdProject.id;
+  };
+
   // --- Sélecteurs dérivés — basés sur l'état LIVE ---
   const getContratsForProject = (projetId) =>
     contrats.filter((c) => c.projet_id === projetId);
 
-  // Nouveau sélecteur pour les contrats d'un sous-traitant
-  const getContratsForSub = (subId) => contrats.filter((c) => c.sous_traitant_id === subId);
+  const getContratsForSub = (subId) =>
+    contrats.filter((c) => c.sous_traitant_id === subId);
 
   // Relation 1:1 pour le DCE, donc .find au lieu de .filter
   const getDCEForProject = (projetId) =>
     dceList.find((d) => d.projet_id === projetId) || null;
 
-  const getEquipeForProject = (projectId) =>
-    (equipeByProject[projectId] || [])
-      .map((entry) => {
-        const membre = equipe.find((m) => m.id === entry.membreId);
-        return membre ? { ...membre, role: entry.role } : null;
-      })
-      .filter(Boolean);
+  // Les affectations sont déjà enrichies par l'API (nom, intitule, type, email, phone)
+  const getEquipeForProject = (projetId) =>
+    equipeAssignments.filter((a) => a.projet_id === projetId);
 
-  const projectsForEquipeMembre = (membreId) =>
-    projects.filter((p) => (equipeByProject[p.id] || []).some((e) => e.membreId === membreId));
+  const projectsForEquipeMembre = (equipeId) =>
+    projects.filter((p) => equipeAssignments.some((a) => a.projet_id === p.id && a.equipe_id === equipeId));
 
-  // Sélecteurs sous-traitants maintenant basés sur les vrais contrats
+  // Sélecteurs sous-traitants basés sur les vrais contrats
   const subProjectCount = (subId) =>
     contrats.filter((c) => c.sous_traitant_id === subId).length;
 
@@ -207,6 +277,7 @@ export function DataProvider({ children }) {
         dceFiles, setDceFile,
         equipe, addEquipeMembre, updateEquipeMembre, removeEquipeMembre,
         assignEquipeToProject, unassignEquipe, getEquipeForProject, projectsForEquipeMembre,
+        marches, addMarche, ignoreMarche, analyserMarche, getAnalyseForMarche, selectMarche,
         subProjectCount, projectsForSub, getHistoryForProject,
         loading, error,
       }}

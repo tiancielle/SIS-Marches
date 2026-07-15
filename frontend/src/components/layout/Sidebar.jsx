@@ -4,10 +4,13 @@ import { LayoutDashboard, FolderKanban, Users, FileText, Receipt, Wallet } from 
 import { C, FONT } from "../../styles/theme";
 import { Users2 } from "lucide-react";
 
+import { FileSearch } from "lucide-react";
+
 // Un item = une route. On respecte l'ordre de construction :
 // Projects et SousTraitants d'abord, Dashboard en dernier (mais affiché en haut par convention).
 const ITEMS = [
   { to: "/dashboard", label: "Tableau de bord", icon: LayoutDashboard },
+  { to: "/marches", label: "Marchés publics", icon: FileSearch },
   { to: "/projects", label: "Projets", icon: FolderKanban },
   { to: "/sous-traitants", label: "Sous-traitants", icon: Users },
   { to: "/contrats", label: "Contrats", icon: FileText },

@@ -6,6 +6,10 @@ const MAP = {
   actif: { label: "Actif", color: C.success },
   termine: { label: "Terminé", color: C.mute },
   brouillon: { label: "Brouillon", color: C.faint },
+  nouveau: { label: "Nouveau", color: C.accent },
+  analyse: { label: "Analysé", color: C.success },
+  converti: { label: "Converti en projet", color: C.mute },
+  ignore: { label: "Ignoré", color: C.faint },
 };
 
 export default function Badge({ status }) {
@@ -16,3 +20,4 @@ export default function Badge({ status }) {
     </span>
   );
 }
+

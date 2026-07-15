@@ -10,6 +10,9 @@ import ContratsView from "./pages/Contrats/ContratsView";
 import ContratDetail from "./pages/Contrats/ContratDetail";
 import EquipeView from "./pages/Equipe/EquipeView";
 import EquipeDetail from "./pages/Equipe/EquipeDetail";
+import MarchesView from "./pages/Marches/MarchesView";
+import MarcheDetail from "./pages/Marches/MarcheDetail";
+
 
 function Placeholder({ label }) {
   return <div style={{ padding: 32, color: "#6B7280", fontSize: 14 }}>{label} — à venir</div>;
@@ -23,6 +26,10 @@ export default function App() {
           <Route element={<AppLayout />}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<Placeholder label="Tableau de bord" />} />
+
+            <Route path="/marches" element={<MarchesView />} />
+            <Route path="/marches/:id" element={<MarcheDetail />} />
+
 
             <Route path="/projects" element={<ProjectsView />} />
             <Route path="/projects/:id" element={<ProjectDetail />} />

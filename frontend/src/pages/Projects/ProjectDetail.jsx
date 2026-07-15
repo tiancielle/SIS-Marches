@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ChevronRight, Pencil, Trash2, MapPin, Wallet, CalendarRange, User } from "lucide-react";
+import { ChevronRight, Pencil, Trash2, MapPin, Wallet, CalendarRange, User, Users } from "lucide-react";
 import { useData } from "../../context/DataContext";
 import { fmt, fmtDate } from "../../lib/mockData";
 import Badge from "../../components/ui/Badge";
@@ -16,14 +16,14 @@ import ProjectHistoryTab from "./tabs/ProjectHistoryTab";
 const TABS = [
   { key: "infos", label: "Infos générales" },
   { key: "subs", label: "Sous-traitants" },
-  { key: "dce", label: "DCE" }, // ← Ajout de l'onglet
+  { key: "dce", label: "DCE" },
   { key: "historique", label: "Historique" },
 ];
 
 export default function ProjectDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { projects, updateProject, deleteProject } = useData();
+  const { projects, updateProject, deleteProject, getEquipeForProject } = useData();
   const [tab, setTab] = useState("infos");
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -31,6 +31,8 @@ export default function ProjectDetail() {
 
   const project = projects.find((p) => String(p.id) === id);
   if (!project) return <div style={{ padding: 32, color: C.faint }}>Projet introuvable.</div>;
+
+  const equipeNames = getEquipeForProject(project.id).map((m) => m.nom).join(", ") || "Aucun membre affecté";
 
   const startEditing = () => { setTab("infos"); setEditing(true); };
 
@@ -83,6 +85,7 @@ export default function ProjectDetail() {
           <SummaryItem icon={User} value={project.chef} />
           <SummaryItem icon={Wallet} value={fmt(project.budget)} />
           <SummaryItem icon={CalendarRange} value={`${fmtDate(project.debut)} → ${fmtDate(project.fin)}`} />
+          <SummaryItem icon={Users} value={equipeNames} />
         </div>
 
         {!editing && (
@@ -115,7 +118,7 @@ export default function ProjectDetail() {
           <>
             {tab === "infos" && <ProjectInfoTab project={project} />}
             {tab === "subs" && <ProjectSubsTab projectId={project.id} />}
-            {tab === "dce" && <ProjectDCETab projectId={project.id} />} {/* ← Ajout du rendu conditionnel */}
+            {tab === "dce" && <ProjectDCETab projectId={project.id} />}
             {tab === "historique" && <ProjectHistoryTab projectId={project.id} />}
           </>
         )}

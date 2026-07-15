@@ -11,7 +11,7 @@ import { C, FONT } from "../../styles/theme";
 
 export default function ProjectsView() {
   const navigate = useNavigate();
-  const { projects, addProject, getSubsForProject } = useData();
+  const { projects, addProject, getContratsForProject  } = useData();
   const [tab, setTab] = useState("actif");
   const [query, setQuery] = useState("");
   const [chefFilter, setChefFilter] = useState("");
@@ -54,7 +54,7 @@ export default function ProjectsView() {
     { key: "lieu", label: sortableHeader("lieu", "Lieu") },
     { key: "chef", label: sortableHeader("chef", "Chef de projet") },
     { key: "fin", label: "Fin prévue", render: (r) => fmtDate(r.fin) },
-    { key: "subs", label: "Sous-traitants", render: (r) => getSubsForProject(r.id).length },
+    { key: "subs", label: "Sous-traitants", render: (r) => getContratsForProject(r.id).length },
     { key: "statut", label: "Statut", render: (r) => <Badge status={r.statut} /> },
   ];
 

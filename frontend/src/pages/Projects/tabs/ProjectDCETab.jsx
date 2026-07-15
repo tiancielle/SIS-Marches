@@ -17,46 +17,36 @@ function Row({ label, value }) {
 function EditRow({ label, value, onChange, type = "text", textarea }) {
   return (
     <div style={{ marginBottom: 14 }}>
-      <label style={{ display: "block", fontFamily: FONT, fontSize: 12, color: C.mute, marginBottom: 5, fontWeight: 600 }}>
-        {label}
-      </label>
+      <label style={{ display: "block", fontFamily: FONT, fontSize: 12, color: C.mute, marginBottom: 5, fontWeight: 600 }}>{label}</label>
       {textarea ? (
-        <textarea
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          rows={4}
-          style={{ width: "100%", fontFamily: FONT, fontSize: 13.5, color: C.ink, padding: "8px 11px", borderRadius: 6, border: `1px solid ${C.line}`, background: C.paper, outline: "none", boxSizing: "border-box", resize: "vertical" }}
-        />
+        <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={4}
+          style={{ width: "100%", fontFamily: FONT, fontSize: 13.5, color: C.ink, padding: "8px 11px", borderRadius: 6, border: `1px solid ${C.line}`, background: C.paper, outline: "none", boxSizing: "border-box", resize: "vertical" }} />
       ) : (
-        <input
-          type={type}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          style={{ width: "100%", fontFamily: FONT, fontSize: 13.5, color: C.ink, padding: "8px 11px", borderRadius: 6, border: `1px solid ${C.line}`, background: C.paper, outline: "none", boxSizing: "border-box" }}
-        />
+        <input type={type} value={value} onChange={(e) => onChange(e.target.value)}
+          style={{ width: "100%", fontFamily: FONT, fontSize: 13.5, color: C.ink, padding: "8px 11px", borderRadius: 6, border: `1px solid ${C.line}`, background: C.paper, outline: "none", boxSizing: "border-box" }} />
       )}
     </div>
   );
 }
 
 export default function ProjectDCETab({ projectId }) {
-  const { getDCEForProject, addDCE, editDCE, removeDCE } = useData();
+  const { getDCEForProject, addDCE, editDCE, removeDCE, dceFiles, setDceFile } = useData();
   const dce = getDCEForProject(projectId);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(EMPTY);
+  const [file, setFile] = useState(null);
 
   const set = (key) => (value) => setForm((f) => ({ ...f, [key]: value }));
 
   const startEdit = () => {
     if (dce) {
-      const sanitized = Object.fromEntries(
-        Object.entries(dce).map(([k, v]) => [k, v === null ? "" : v])
-      );
+      const sanitized = Object.fromEntries(Object.entries(dce).map(([k, v]) => [k, v === null ? "" : v]));
       setForm({ ...EMPTY, ...sanitized });
     } else {
       setForm(EMPTY);
     }
+    setFile(null);
     setEditing(true);
   };
 
@@ -69,11 +59,11 @@ export default function ProjectDCETab({ projectId }) {
         montant_estimatif: form.montant_estimatif === "" ? null : Number(form.montant_estimatif),
         date_limite_remise: form.date_limite_remise || null,
       };
-      if (dce) {
-        await editDCE(dce.id, payload);
-      } else {
-        await addDCE(payload);
-      }
+      if (file) payload.document_nom = file.name;
+
+      const result = dce ? await editDCE(dce.id, payload) : await addDCE(payload);
+      if (file && result?.id) setDceFile(result.id, file);
+
       setEditing(false);
     } finally {
       setSaving(false);
@@ -97,6 +87,16 @@ export default function ProjectDCETab({ projectId }) {
         <EditRow label="Pièces exigées (une par ligne)" value={form.pieces_exigees} onChange={set("pieces_exigees")} textarea />
         <EditRow label="Nom du document DCE" value={form.document_nom} onChange={set("document_nom")} />
 
+        <div style={{ marginBottom: 4 }}>
+          <label style={{ display: "block", fontFamily: FONT, fontSize: 12, color: C.mute, marginBottom: 5, fontWeight: 600 }}>
+            Fichier DCE (facultatif)
+          </label>
+          <input type="file" accept=".pdf,.jpg,.jpeg,.png,.zip" onChange={(e) => setFile(e.target.files?.[0] || null)} style={{ fontFamily: FONT, fontSize: 13 }} />
+          <div style={{ fontFamily: FONT, fontSize: 11.5, color: C.faint, marginTop: 4 }}>
+            ⚠ Stockage temporaire (navigateur), perdu au rafraîchissement — en attendant le vrai stockage backend.
+          </div>
+        </div>
+
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
           <button onClick={() => setEditing(false)} style={btnGhost}>Annuler</button>
           <button onClick={handleSave} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.6 : 1 }}>
@@ -110,13 +110,13 @@ export default function ProjectDCETab({ projectId }) {
   if (!dce) {
     return (
       <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: 32, textAlign: "center" }}>
-        <div style={{ fontFamily: FONT, fontSize: 13.5, color: C.faint, marginBottom: 14 }}>
-          Aucune fiche DCE pour ce projet.
-        </div>
+        <div style={{ fontFamily: FONT, fontSize: 13.5, color: C.faint, marginBottom: 14 }}>Aucune fiche DCE pour ce projet.</div>
         <button onClick={startEdit} style={btnPrimary}>Créer la fiche DCE</button>
       </div>
     );
   }
+
+  const fileEntry = dceFiles[dce.id];
 
   return (
     <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: "18px 22px", maxWidth: 560 }}>
@@ -131,6 +131,14 @@ export default function ProjectDCETab({ projectId }) {
       <Row label="Type de procédure" value={dce.type_procedure} />
       <Row label="Pièces exigées" value={dce.pieces_exigees} />
       <Row label="Document" value={dce.document_nom} />
+
+      {fileEntry && (
+        <div style={{ padding: "11px 0" }}>
+          <span onClick={() => window.open(fileEntry.fileUrl, "_blank")} style={{ color: C.accent, fontFamily: FONT, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            📄 Voir le fichier ({fileEntry.fileName})
+          </span>
+        </div>
+      )}
     </div>
   );
 }

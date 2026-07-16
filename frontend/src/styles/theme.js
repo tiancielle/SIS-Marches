@@ -1,30 +1,30 @@
-// Thème partagé — palette et typographie.
-// Direction : plat, professionnel, minimaliste (inspiré de TenderWatch).
-// Pas d'ombres, pas de "cards" décoratives — juste des surfaces blanches et des bordures fines.
-
 export const C = {
-  // Fonds
-  paper: "#F4F6FA",   // fond général de l'application
-  card: "#FFFFFF",    // panneaux, tables, sidebar
-  line: "#E4E8F0",    // bordures fines
+  paper: "#F7F5F2",
+  card: "#FFFFFF",
+  line: "#D9D4CE",
 
-  // Textes
-  ink: "#12182B",     // texte principal
-  mute: "#6B7280",    // texte secondaire
-  faint: "#98A2B3",   // texte tertiaire / placeholders
+  ink: "#232323",
+  mute: "#5C5952",
+  faint: "#8F897E",
 
-  // Accent
-  accent: "#2563EB",
-  accentLt: "#EFF4FF",
+  accent: "#243746",
+  accentLt: "#E4E7E9",
 
-  // États (texte uniquement, pas de pastilles colorées pleines)
-  success: "#15803D",
-  danger: "#B91C1C",
-  warning: "#B45309",
+  success: "#3F7D4A",
+  warning: "#B8863B",
+  danger: "#B23A34",
+
+  // Sidebar sombre — seule zone sombre de l'appli, le contenu reste clair
+  sidebarBg: "#1B2A38",
+  sidebarText: "rgba(255,255,255,0.6)",
+  sidebarTextActive: "#FFFFFF",
+  sidebarActiveBg: "rgba(255,255,255,0.08)",
+  sidebarBorder: "rgba(255,255,255,0.08)",
+
+  shadow: "0 1px 2px rgba(35,35,35,0.04), 0 4px 14px rgba(35,35,35,0.06)",
+  radius: "12px",
 };
 
-export const FONT = "'Inter', -apple-system, BlinkMacSystemFont, sans-serif";
+export const FONT_DISPLAY = "'Fraunces', serif"; // titres de page uniquement
 
-// À ajouter une fois dans index.html :
-// <link rel="preconnect" href="https://fonts.googleapis.com">
-// <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+export const FONT = "'Inter', -apple-system, BlinkMacSystemFont, sans-serif";

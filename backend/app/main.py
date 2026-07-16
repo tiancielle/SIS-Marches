@@ -1,27 +1,37 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
+from app.core.scheduler import start_scheduler
 
 app = FastAPI(title="SIS Suivi Marchés API")
 
 from app.core.database import Base, engine
-from app.models import projet, sous_traitant  # noqa: F401 — nécessaire pour enregistrer les tables
-
-from app.models import contrat  # noqa: F401
-from app.models import dce  # noqa: F401
-from app.models import equipe, projet_equipe  
+from app.models import projet, sous_traitant
+from app.models import contrat
+from app.models import dce
+from app.models import equipe, projet_equipe
+from app.models import appel_offres, analyse_ia  # noqa: F401 — nouveau module
 
 Base.metadata.create_all(bind=engine)
 
 from app.routers import projets, sous_traitants
 from app.routers import contrats
 from app.routers import dce
+from app.routers import equipe
+from app.routers import appel_offres as appel_offres_router  # nouveau
 
 app.include_router(dce.router)
 app.include_router(contrats.router)
 app.include_router(projets.router)
 app.include_router(sous_traitants.router)
+app.include_router(equipe.router)
+app.include_router(equipe.projet_equipe_router)
+app.include_router(appel_offres_router.router)
 
+@app.on_event("startup")
+def on_startup():
+    start_scheduler()
+    
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -33,5 +43,3 @@ app.add_middleware(
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-# Les routers (projets, sous_traitants, ...) seront inclus ici aux prochaines étapes.

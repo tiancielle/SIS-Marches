@@ -20,7 +20,7 @@ http://localhost:8000). Lance-le dans un terminal séparé, puis exécute :
 ⚠️ ADAPTER SI BESOIN : NOMS DE CHAMPS / ENDPOINTS
 --------------------------------------------------------------------------
 Je n'ai pas accès à tes schémas Pydantic exacts. J'ai utilisé les noms de
-champs mentionnés dans ta demande (camelCase : budgetEngage, dateDebut...).
+champs mentionnés dans ta demande (camelCase : budget_engage, dateDebut...).
 Si tes modèles utilisent d'autres noms (ex: snake_case), modifie UNIQUEMENT
 les dictionnaires retournés par build_projet_payload / build_sous_traitant_payload
 / build_contrat_payload ci-dessous, et les constantes *_ENDPOINT.
@@ -44,8 +44,7 @@ SOUS_TRAITANTS_ENDPOINT = f"{BASE_URL}/sous-traitants/"
 CONTRATS_ENDPOINT = f"{BASE_URL}/contrats/"
 
 # Noms des clés utilisées pour lier les objets entre eux dans le payload
-# Contrat (à adapter si ton schéma utilise ex: "projet_id" au lieu de "projetId")
-CONTRAT_PROJET_FK = "projet_id"
+CONTRAT_PROJET_FK = "projet_id"  # Décommenté et activé
 CONTRAT_SOUS_TRAITANT_FK = "sous_traitant_id"
 
 TIMEOUT = 10
@@ -75,7 +74,7 @@ TYPES_PROJETS = [
     ("Hôpital", ["Centre Hospitalier Régional", "Clinique Al Kindi",
                  "Pôle Médical Ibn Rochd"]),
     ("Route / Voirie", ["Rocade Périphérique", "Voie de contournement",
-                         "Aménagement Boulevard Al Massira"]),
+                        "Aménagement Boulevard Al Massira"]),
     ("Centre commercial", ["Atlas Mall Extension", "Marina Shopping"]),
 ]
 
@@ -111,7 +110,7 @@ NOMS_CONTACTS = [
     "Lahlou", "Naciri", "Ouahbi", "Sqalli", "Tahiri",
 ]
 
-STATUTS_PROJET = ["actif", "actif", "actif", "termine", "termine"]  # ~60/40
+STATUTS_PROJET = ["actif", "actif", "actif", "termine", "termine"]  # ~60/40 (V1, cohérent avec le modèle actuel)
 STATUTS_CONTRAT = ["actif", "termine", "en_attente"]
 
 # ============================================================
@@ -125,12 +124,9 @@ def random_date(start: date, end: date) -> date:
 
 def generate_ice() -> str:
     """
-    Génère un identifiant à 15 chiffres au bon FORMAT ICE marocain :
-    9 chiffres identifiant + 3 chiffres établissement + 2 chiffres type + 1 clé.
-    ⚠️ La clé de contrôle N'EST PAS calculée selon un algorithme officiel validé
-    (l'algorithme exact de la clé ICE marocaine n'est pas public/standardisé de
-    façon fiable) : ceci est un identifiant à 15 chiffres visuellement conforme,
-    PAS un ICE mathématiquement vérifiable. À ne pas utiliser tel quel en prod.
+    Génère un identifiant à 15 chiffres au bon FORMAT ICE marocain.
+    ⚠️ La clé de contrôle N'EST PAS calculée selon un algorithme officiel validé.
+    Ceci est un identifiant visuellement conforme, PAS un ICE mathématiquement vérifiable.
     """
     identifiant = "".join(str(random.randint(0, 9)) for _ in range(9))
     etablissement = "001"
@@ -205,7 +201,7 @@ def build_projet_payload(index: int) -> dict:
         "client": random.choice(CLIENTS),
         "lieu": random.choice(VILLES_QUARTIERS),
         "budget": budget,
-        "budgetEngage": budget_engage,
+        "budget_engage": budget_engage,
         "debut": debut.isoformat(),
         "fin": fin.isoformat(),
         "statut": statut,
@@ -246,9 +242,6 @@ def build_contrat_payload(index: int, projet: dict, sous_traitant: dict) -> dict
         CONTRAT_PROJET_FK: projet["id"],
         CONTRAT_SOUS_TRAITANT_FK: sous_traitant["id"],
         "montant": montant,
-        # ⚠️ NON CONFIRMÉ : je n'ai pas encore vu l'erreur 422 du endpoint /contrats/.
-        # Par cohérence avec le schéma Projet (debut/fin), je pars sur les mêmes noms.
-        # Si ça échoue avec un 422, regarde le détail affiché et ajuste ici.
         "debut": contrat_debut.isoformat(),
         "fin": contrat_fin.isoformat(),
         "statut": random.choice(STATUTS_CONTRAT),
@@ -369,8 +362,8 @@ def main():
         print("\n⚠️  Certaines entités n'ont pas pu être créées. Vérifie les erreurs 422 ci-dessus")
         print("   (probablement un nom de champ qui diffère de ton schéma Pydantic).")
         sys.exit(1)
-
-    print("\n✅ Seed terminé avec succès.")
+    
+    print("\n Seed terminé avec succès.")
 
 
 if __name__ == "__main__":

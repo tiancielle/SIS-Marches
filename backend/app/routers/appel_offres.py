@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
-from app.core.database import get_db
+from app.core.database import get_db, SessionLocal
 from app.models.appel_offres import AppelOffres
 from app.schemas.appel_offres import AppelOffresRead, SyncResult, DceDownloadResult
 from app.services.acquisition import sync_orchestrator
@@ -24,9 +24,17 @@ def get_appel_offres(appel_id: int, db: Session = Depends(get_db)):
     return appel
 
 
-@router.post("/synchroniser", response_model=SyncResult)
-def synchroniser(db: Session = Depends(get_db)):
-    return sync_orchestrator.run(db)
+@router.post("/synchroniser")
+def synchroniser(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    def _run_sync_background():
+        bg_db = SessionLocal()
+        try:
+            sync_orchestrator.run(bg_db)
+        finally:
+            bg_db.close()
+
+    background_tasks.add_task(_run_sync_background)
+    return {"status": "demarree", "message": "Synchronisation lancée en arrière-plan"}
 
 
 @router.post("/{appel_id}/telecharger-dce", response_model=DceDownloadResult)

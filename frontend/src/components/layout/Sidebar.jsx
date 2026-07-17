@@ -9,7 +9,7 @@ import { C, FONT } from "../../styles/theme";
 const GROUPS = [
   {
     id: "veille",
-    label: "Veille",
+    label: "VEILLE",
     icon: FileSearch,
     items: [
       { to: "/marches", label: "Marchés publics" },
@@ -18,7 +18,7 @@ const GROUPS = [
   },
   {
     id: "projets",
-    label: "Projets",
+    label: "PROJECTS",
     icon: FolderKanban,
     items: [
       { to: "/projects", label: "Tous les projets" },
@@ -28,7 +28,7 @@ const GROUPS = [
   },
   {
     id: "ressources",
-    label: "Ressources",
+    label: "RESSOURCES",
     icon: Users,
     items: [
       { to: "/equipe", label: "Équipe" },
@@ -37,7 +37,7 @@ const GROUPS = [
   },
   {
     id: "finances",
-    label: "Finances",
+    label: "FINANCES",
     icon: Wallet,
     items: [
       { to: "/factures", label: "Factures" },
@@ -46,7 +46,7 @@ const GROUPS = [
   },
   {
     id: "administration",
-    label: "Administration",
+    label: "ADMINISTRATION",
     icon: Settings,
     items: [],
   },
@@ -127,10 +127,10 @@ export default function Sidebar() {
 
       <div style={{ borderTop: `1px solid ${C.sidebarBorder}`, paddingTop: 12, display: "flex", alignItems: "center", gap: 10, padding: "12px" }}>
         <div style={{ width: 30, height: 30, borderRadius: "50%", background: "rgba(255,255,255,0.12)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT, fontSize: 12, fontWeight: 600, color: "#fff", flexShrink: 0 }}>
-          RK
+          HN
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Rania Kabbaj</div>
+          <div style={{ fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Hiba Nasri</div>
           <div style={{ fontFamily: FONT, fontSize: 11, color: "rgba(255,255,255,0.4)" }}>Consultante</div>
         </div>
         <button style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.5)", display: "flex", padding: 4 }} aria-label="Déconnexion" title="Déconnexion">
@@ -142,15 +142,15 @@ export default function Sidebar() {
 }
 
 const rowStyle = (isActive) => ({
-  display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 7,
+  display: "flex", alignItems: "center", gap: 10, padding: "11px 12px", borderRadius: 7,
   textDecoration: "none", fontFamily: FONT, fontSize: 13.5, fontWeight: isActive ? 600 : 500,
   color: isActive ? "#fff" : "rgba(255,255,255,0.65)",
-  background: isActive ? "rgba(255,255,255,0.08)" : "transparent",
+  background: isActive ? "rgba(255,255,255,0.10)" : "transparent",
 });
 
 const subRowStyle = (isActive) => ({
   display: "block", padding: "7px 10px", borderRadius: 6,
   textDecoration: "none", fontFamily: FONT, fontSize: 12.5, fontWeight: isActive ? 600 : 500,
   color: isActive ? "#fff" : "rgba(255,255,255,0.5)",
-  background: isActive ? "rgba(255,255,255,0.08)" : "transparent",
+  background: isActive ? "rgba(255,255,255,0.10)" : "transparent",
 });

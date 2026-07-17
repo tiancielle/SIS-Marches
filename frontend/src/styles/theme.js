@@ -18,7 +18,7 @@ export const C = {
   sidebarBg: "#1B2A38",
   sidebarText: "rgba(255,255,255,0.6)",
   sidebarTextActive: "#FFFFFF",
-  sidebarActiveBg: "rgba(255,255,255,0.08)",
+  sidebarActiveBg: "rgba(255,255,255,0.10)",
   sidebarBorder: "rgba(255,255,255,0.08)",
 
   shadow: "0 1px 2px rgba(35,35,35,0.04), 0 4px 14px rgba(35,35,35,0.06)",
@@ -26,5 +26,4 @@ export const C = {
 };
 
 export const FONT_DISPLAY = "'Fraunces', serif"; // titres de page uniquement
-
 export const FONT = "'Inter', -apple-system, BlinkMacSystemFont, sans-serif";

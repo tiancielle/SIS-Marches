@@ -39,8 +39,23 @@ def _get_or_create_sync_state(db: DbSession) -> SyncState:
 
 def run(db: DbSession) -> dict:
     sync_state = _get_or_create_sync_state(db)
-    client = PortalClient()
 
+    # Garde de concurrence : empêcher les exécutions simultanées
+    if sync_state.en_cours:
+        return {
+            "nb_trouves": 0,
+            "nb_nouveaux": 0,
+            "nb_doublons": 0,
+            "nb_erreurs": 0,
+            "references_nouvelles": [],
+            "message": "Une synchronisation est déjà en cours, ignorée.",
+        }
+
+    # Marquer comme en cours
+    sync_state.en_cours = True
+    db.commit()
+
+    client = PortalClient()
     nb_trouves = nb_nouveaux = nb_doublons = nb_erreurs = 0
     references_nouvelles: list[str] = []
 
@@ -105,6 +120,9 @@ def run(db: DbSession) -> dict:
 
     finally:
         client.close()
+        # Libérer le verrou de synchronisation
+        sync_state.en_cours = False
+        db.commit()
 
     return {
         "nb_trouves": nb_trouves,

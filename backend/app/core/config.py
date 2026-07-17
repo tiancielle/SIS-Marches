@@ -1,7 +1,11 @@
+import os
 from pydantic_settings import BaseSettings
 
+# Calcul du chemin absolu vers le dossier racine du backend (app/core/config.py -> dirname x3 = backend/)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 class Settings(BaseSettings):
-    database_url: str = "sqlite:///./sis.db"
+    database_url: str = f"sqlite:///{os.path.join(BASE_DIR, 'sis.db')}"
     jwt_secret_key: str = "change-me"
     jwt_expiration_minutes: int = 60
     cors_origins: list[str] = ["http://localhost:5173"]

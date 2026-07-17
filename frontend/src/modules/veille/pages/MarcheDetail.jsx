@@ -1,111 +1,233 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ChevronRight, ExternalLink, Sparkles } from "lucide-react";
-import { useData } from "../../../store/DataContext";
-import { fmt, fmtDate } from "../../../lib/mockData";
-import Badge from "../../../components/ui/Badge";
-import { C, FONT } from "../../../styles/theme";
+import {
+  ChevronRight, Download, EyeOff, RotateCcw, Sparkles, AlertCircle,
+  Calendar, Building2, FileText, Wallet, Hash,
+} from "lucide-react";
+import {
+  fetchAppelOffre, telechargerDCE, ignorerAppelOffre, reactiverAppelOffre,
+} from "../../../services/appelsOffres";
+import Skeleton from "../../../components/ui/Skeleton";
+import { C, FONT, FONT_DISPLAY } from "../../../styles/theme";
 
-function Row({ label, value }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "11px 0", borderBottom: `1px solid ${C.line}`, gap: 16 }}>
-      <span style={{ fontFamily: FONT, fontSize: 13, color: C.mute, flexShrink: 0 }}>{label}</span>
-      <span style={{ fontFamily: FONT, fontSize: 13.5, color: C.ink, fontWeight: 600, textAlign: "right" }}>{value || "—"}</span>
-    </div>
-  );
+const STATUT_LABELS = { nouveau: "Nouveau", analyse: "Analysé", interesse: "Intéressé", ignore: "Ignoré" };
+const STATUT_COLORS = {
+  nouveau: { bg: C.accentLt, text: C.accent },
+  analyse: { bg: "#EAF2E7", text: C.success },
+  interesse: { bg: "#F3E8D0", text: "#8A6A1F" },
+  ignore: { bg: "#F1EFEA", text: C.faint },
+};
+
+function fmtDate(d) {
+  if (!d) return "Non communiqué";
+  return new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
+}
+function fmtMontant(m) {
+  if (m === null || m === undefined) return "Non communiqué";
+  return new Intl.NumberFormat("fr-FR").format(m) + " DH";
 }
 
 export default function MarcheDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { marches, getAnalyseForMarche, analyserMarche, selectMarche, ignoreMarche } = useData();
-  const [analysing, setAnalysing] = useState(false);
-  const [converting, setConverting] = useState(false);
+  const [appel, setAppel] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const marche = marches.find((m) => String(m.id) === id);
-  if (!marche) return <div style={{ padding: 32, color: C.faint }}>Marché introuvable.</div>;
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState(null);
+  const [updating, setUpdating] = useState(false);
 
-  const analyse = getAnalyseForMarche(marche.id);
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await fetchAppelOffre(id);
+      setAppel(data);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
 
-  const handleAnalyser = async () => { setAnalysing(true); try { await analyserMarche(marche.id); } finally { setAnalysing(false); } };
-  const handleSelect = async () => { setConverting(true); try { const pid = await selectMarche(marche.id); navigate(`/projects/${pid}`); } finally { setConverting(false); } };
+  useEffect(() => { load(); }, [id]);
+
+  async function handleDownload() {
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      const res = await telechargerDCE(id);
+      setAppel((prev) => ({ ...prev, url_cps: res.url_cps }));
+    } catch (e) {
+      setDownloadError(e.message);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  async function handleIgnorer() {
+    setUpdating(true);
+    try {
+      const updated = await ignorerAppelOffre(id);
+      setAppel(updated);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  async function handleReactiver() {
+    setUpdating(true);
+    try {
+      const updated = await reactiverAppelOffre(id);
+      setAppel(updated);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div style={{ padding: "28px clamp(20px, 4vw, 48px)", maxWidth: 900, margin: "0 auto" }}>
+        <Skeleton width={180} height={13} style={{ marginBottom: 20 }} />
+        <Skeleton width="60%" height={26} style={{ marginBottom: 10 }} />
+        <Skeleton width="30%" height={14} style={{ marginBottom: 30 }} />
+        <Skeleton width="100%" height={160} />
+      </div>
+    );
+  }
+
+  if (error || !appel) {
+    return (
+      <div style={{ padding: "60px 20px", textAlign: "center", fontFamily: FONT, color: C.danger }}>
+        <AlertCircle size={22} style={{ marginBottom: 8 }} />
+        <p>{error || "Appel d'offres introuvable."}</p>
+        <button onClick={() => navigate("/marches")} style={{ ...linkBtn, marginTop: 10 }}>← Retour à la liste</button>
+      </div>
+    );
+  }
+
+  const st = STATUT_COLORS[appel.statut] || STATUT_COLORS.nouveau;
 
   return (
-    <div>
-      <div style={{ padding: "18px 32px 0" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT, fontSize: 12.5, color: C.faint, marginBottom: 12 }}>
-          <Link to="/marches" style={{ color: C.faint, textDecoration: "none" }}>Marchés publics</Link>
-          <ChevronRight size={12} />
-          <span style={{ color: C.ink, fontWeight: 600 }}>{marche.reference}</span>
-        </div>
+    <div style={{ padding: "28px clamp(20px, 4vw, 48px)", maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT, fontSize: 12.5, color: C.mute, marginBottom: 18 }}>
+        <Link to="/marches" style={{ color: C.mute, textDecoration: "none" }}>Marchés publics</Link>
+        <ChevronRight size={13} />
+        <span style={{ color: C.ink }}>{appel.reference}</span>
+      </div>
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div>
-            <h1 style={{ fontFamily: FONT, fontSize: 20, fontWeight: 700, color: C.ink, margin: 0, maxWidth: 640 }}>{marche.objet}</h1>
-            <div style={{ marginTop: 6 }}><Badge status={marche.statut} /></div>
-          </div>
-
-          {marche.statut !== "converti" && marche.statut !== "ignore" && (
-            <div style={{ display: "flex", gap: 8 }}>
-              {!analyse && (
-                <button onClick={handleAnalyser} disabled={analysing} style={btnAccent}>
-                  <Sparkles size={14} /> {analysing ? "Analyse en cours…" : "Analyser"}
-                </button>
-              )}
-              <button onClick={handleSelect} disabled={converting} style={btnPrimary}>
-                {converting ? "…" : "Sélectionner → créer le projet"}
-              </button>
-              <button onClick={() => ignoreMarche(marche.id)} style={btnGhost}>Ignorer</button>
-            </div>
-          )}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
+        <div>
+          <span style={{ fontFamily: FONT, fontSize: 10.5, fontWeight: 700, color: st.text, background: st.bg, padding: "4px 10px", borderRadius: 20 }}>
+            {STATUT_LABELS[appel.statut] || appel.statut}
+          </span>
+          <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 600, color: C.ink, margin: "10px 0 0", lineHeight: 1.3 }}>
+            {appel.objet || "Objet non communiqué"}
+          </h1>
         </div>
       </div>
 
-      <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 16 }} />
-
-      <div style={{ padding: 32, display: "flex", flexDirection: "column", gap: 24 }}>
-        <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: "18px 22px", maxWidth: 560 }}>
-          <Row label="Organisme" value={marche.organisme} />
-          <Row label="Montant estimatif" value={marche.montant_estimatif ? fmt(marche.montant_estimatif) : null} />
-          <Row label="Date limite" value={marche.date_limite_remise ? fmtDate(marche.date_limite_remise) : null} />
-          <Row label="Type de procédure" value={marche.type_procedure} />
-          {marche.url_avis && (
-            <div style={{ padding: "11px 0" }}>
-              <a href={marche.url_avis} target="_blank" rel="noreferrer" style={{ color: C.accent, fontFamily: FONT, fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}>
-                Voir l'avis officiel <ExternalLink size={12} />
-              </a>
-            </div>
-          )}
-          {marche.url_cps && (
-            <div style={{ padding: "11px 0" }}>
-              <a href={marche.url_cps} target="_blank" rel="noreferrer" style={{ color: C.accent, fontFamily: FONT, fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}>
-                Voir le CPS <ExternalLink size={12} />
-              </a>
-            </div>
-          )}
+      <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: C.radius, padding: 22, marginBottom: 16 }}>
+        <p style={{ fontFamily: FONT, fontSize: 11, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: 0.5, margin: "0 0 16px" }}>
+          Informations officielles
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 18 }}>
+          <Field icon={Hash} label="Référence" value={appel.reference} />
+          <Field icon={Building2} label="Organisme" value={appel.organisme} />
+          <Field icon={Wallet} label="Montant estimatif" value={fmtMontant(appel.montant_estimatif)} />
+          <Field icon={Calendar} label="Date limite" value={fmtDate(appel.date_limite_remise)} />
+          <Field icon={FileText} label="Type de procédure" value={appel.type_procedure} />
+          <Field icon={Hash} label="Référence consultation" value={appel.ref_consultation} />
         </div>
 
-        {analyse && (
-          <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: "18px 22px", maxWidth: 560 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-              <span style={{ fontFamily: FONT, fontSize: 13, fontWeight: 700, color: C.ink }}>Analyse IA</span>
-              <span style={{ fontFamily: FONT, fontSize: 18, fontWeight: 700, color: analyse.score_pertinence >= 60 ? C.success : C.mute }}>{analyse.score_pertinence}/100</span>
-            </div>
-            <p style={{ fontFamily: FONT, fontSize: 13.5, color: C.ink, marginTop: 0 }}>{analyse.resume}</p>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "10px 0" }}>
-              {analyse.mots_cles.map((k) => (
-                <span key={k} style={{ fontFamily: FONT, fontSize: 11.5, color: C.mute, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 4, padding: "2px 8px" }}>{k}</span>
-              ))}
-            </div>
-            <Row label="Justification" value={analyse.justification} />
-            <Row label="Recommandations" value={analyse.recommandations} />
-          </div>
+        {appel.url_avis && (
+          <a href={appel.url_avis} target="_blank" rel="noreferrer" style={{ ...linkBtn, marginTop: 18, display: "inline-block" }}>
+            Voir l'avis sur le portail →
+          </a>
         )}
+      </div>
+
+      <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: C.radius, padding: 22, marginBottom: 16 }}>
+        <p style={{ fontFamily: FONT, fontSize: 11, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: 0.5, margin: "0 0 14px" }}>
+          Dossier de consultation
+        </p>
+        {appel.url_cps ? (
+          <a href={appel.url_cps} target="_blank" rel="noreferrer" style={primaryBtn}>
+            <Download size={14} /> Télécharger le dossier
+          </a>
+        ) : (
+          <>
+            <button onClick={handleDownload} disabled={downloading} style={{ ...primaryBtn, background: downloading ? C.faint : C.accent, cursor: downloading ? "default" : "pointer" }}>
+              <Download size={14} /> {downloading ? "Récupération en cours…" : "Récupérer le dossier"}
+            </button>
+            {downloading && (
+              <p style={{ fontFamily: FONT, fontSize: 12, color: C.mute, marginTop: 8 }}>
+                Le portail peut être lent — ça peut prendre jusqu'à une minute.
+              </p>
+            )}
+            {downloadError && (
+              <p style={{ fontFamily: FONT, fontSize: 12, color: C.danger, marginTop: 8, display: "flex", alignItems: "center", gap: 5 }}>
+                <AlertCircle size={13} /> {downloadError}
+              </p>
+            )}
+          </>
+        )}
+      </div>
+
+      <div style={{ background: C.paper, border: `1px dashed ${C.line}`, borderRadius: C.radius, padding: 22, marginBottom: 24, textAlign: "center" }}>
+        <Sparkles size={18} color={C.faint} style={{ marginBottom: 8 }} />
+        <p style={{ fontFamily: FONT, fontSize: 13, color: C.faint, margin: 0 }}>Analyse IA bientôt disponible.</p>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        {appel.statut === "ignore" ? (
+          <button onClick={handleReactiver} disabled={updating} style={secondaryBtn}>
+            <RotateCcw size={14} /> Réactiver
+          </button>
+        ) : (
+          <button onClick={handleIgnorer} disabled={updating} style={secondaryBtn}>
+            <EyeOff size={14} /> Ignorer
+          </button>
+        )}
+        <div title="Bientôt disponible — conversion en Projet pas encore branchée côté backend">
+          <button disabled style={{ ...primaryBtn, background: C.faint, cursor: "default" }}>
+            Je suis intéressé
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-const btnGhost = { display: "flex", alignItems: "center", gap: 6, fontFamily: FONT, fontSize: 13, fontWeight: 600, color: C.mute, background: C.card, border: `1px solid ${C.line}`, borderRadius: 6, padding: "7px 12px", cursor: "pointer" };
-const btnAccent = { ...btnGhost, color: C.accent, background: C.accentLt, border: "none" };
-const btnPrimary = { ...btnGhost, color: "#fff", background: C.accent, border: "none" };
+function Field({ icon: Icon, label, value }) {
+  return (
+    <div>
+      <p style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: FONT, fontSize: 11, color: C.faint, margin: "0 0 4px" }}>
+        <Icon size={12} /> {label}
+      </p>
+      <p style={{ fontFamily: FONT, fontSize: 14, fontWeight: 500, color: value ? C.ink : C.faint, margin: 0 }}>
+        {value || "Non communiqué"}
+      </p>
+    </div>
+  );
+}
+
+const linkBtn = {
+  fontFamily: FONT, fontSize: 13, fontWeight: 600, color: C.accent, textDecoration: "none",
+  background: "none", border: "none", cursor: "pointer", padding: 0,
+};
+const primaryBtn = {
+  display: "inline-flex", alignItems: "center", gap: 7, fontFamily: FONT, fontSize: 13.5, fontWeight: 600,
+  color: "#fff", background: C.accent, border: "none", borderRadius: C.radius, padding: "10px 18px",
+  cursor: "pointer", textDecoration: "none", boxShadow: C.shadow,
+};
+const secondaryBtn = {
+  display: "inline-flex", alignItems: "center", gap: 7, fontFamily: FONT, fontSize: 13.5, fontWeight: 600,
+  color: C.ink, background: "transparent", border: `1px solid ${C.line}`, borderRadius: C.radius, padding: "10px 18px",
+  cursor: "pointer",
+};

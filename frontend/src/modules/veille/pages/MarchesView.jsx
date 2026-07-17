@@ -1,11 +1,12 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Search, RefreshCw, Download, EyeOff, RotateCcw, Sparkles,
-  Calendar, Building2, FileText, AlertCircle, CheckCircle2, Inbox,
+  Calendar, Building2, FileText, AlertCircle, CheckCircle2, Inbox, ChevronDown, X,
 } from "lucide-react";
 import {
   fetchAppelsOffres, synchroniserAppelsOffres, telechargerDCE, ignorerAppelOffre, reactiverAppelOffre,
+  resolveFileUrl,
 } from "../../../services/appelsOffres";
 import Skeleton from "../../../components/ui/Skeleton";
 import { C, FONT, FONT_DISPLAY } from "../../../styles/theme";
@@ -31,6 +32,9 @@ function joursRestants(d) {
   if (!d) return null;
   return Math.ceil((new Date(d) - new Date()) / (1000 * 60 * 60 * 24));
 }
+function isoDate(d) {
+  return d.toISOString().slice(0, 10);
+}
 
 export default function MarchesView() {
   const navigate = useNavigate();
@@ -49,6 +53,15 @@ export default function MarchesView() {
   const [statutFilter, setStatutFilter] = useState("tous");
   const [procedureFilter, setProcedureFilter] = useState("tous");
   const [organismeFilter, setOrganismeFilter] = useState("tous");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  const [toast, setToast] = useState(null);
+  function showSoonToast() {
+    setToast("Bientôt disponible — la conversion en Projet n'est pas encore branchée côté backend.");
+    clearTimeout(showSoonToast._t);
+    showSoonToast._t = setTimeout(() => setToast(null), 3200);
+  }
 
   async function load() {
     setLoading(true);
@@ -132,6 +145,14 @@ export default function MarchesView() {
       .filter((a) => procedureFilter === "tous" || a.type_procedure === procedureFilter)
       .filter((a) => organismeFilter === "tous" || a.organisme === organismeFilter)
       .filter((a) => {
+        if (!dateFrom && !dateTo) return true;
+        if (!a.date_limite_remise) return false;
+        const d = a.date_limite_remise.slice(0, 10);
+        if (dateFrom && d < dateFrom) return false;
+        if (dateTo && d > dateTo) return false;
+        return true;
+      })
+      .filter((a) => {
         if (!search) return true;
         const q = search.toLowerCase();
         return (
@@ -145,7 +166,7 @@ export default function MarchesView() {
         if (!b.date_limite_remise) return -1;
         return new Date(a.date_limite_remise) - new Date(b.date_limite_remise);
       });
-  }, [appels, statutFilter, procedureFilter, organismeFilter, search]);
+  }, [appels, statutFilter, procedureFilter, organismeFilter, dateFrom, dateTo, search]);
 
   const kpis = useMemo(() => {
     const c = { nouveau: 0, analyse: 0, interesse: 0, ignore: 0 };
@@ -212,7 +233,7 @@ export default function MarchesView() {
       </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 22 }}>
-        <div style={{ position: "relative", flex: "1 1 280px" }}>
+        <div style={{ position: "relative", flex: "1 1 280px", minWidth: 0 }}>
           <Search size={15} color={C.faint} style={{ position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)" }} />
           <input
             value={search}
@@ -231,6 +252,7 @@ export default function MarchesView() {
           options={[["tous", "Toutes"], ...procedures.map((p) => [p, p])]} />
         <FilterPill label="Organisme" value={organismeFilter} onChange={setOrganismeFilter}
           options={[["tous", "Tous"], ...organismes.map((o) => [o, o])]} />
+        <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
         <div title="Bientôt disponible" style={{ ...pillStyle, opacity: 0.45, cursor: "default" }}>Pertinence IA</div>
       </div>
 
@@ -315,7 +337,7 @@ export default function MarchesView() {
                 <div style={{ display: "flex", gap: 6, marginTop: 2, flexWrap: "wrap" }} onClick={(e) => e.stopPropagation()}>
                   <CardAction icon={FileText} label="Voir" onClick={() => navigate(`/marches/${a.id}`)} />
                   {a.url_cps ? (
-                    <a href={a.url_cps} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                    <a href={resolveFileUrl(a.url_cps)} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
                       <CardAction icon={Download} label="Dossier" />
                     </a>
                   ) : (
@@ -326,18 +348,130 @@ export default function MarchesView() {
                   ) : (
                     <CardAction icon={EyeOff} label="Ignorer" onClick={() => handleIgnorer(a.id)} />
                   )}
-                  <div title="Bientôt disponible — conversion en Projet pas encore branchée côté backend">
-                    <CardAction primary label="Je suis intéressé" disabled />
-                  </div>
+                  <CardAction primary label="Je suis intéressé" onClick={showSoonToast} />
                 </div>
               </div>
             );
           })}
         </div>
       )}
+
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+          background: C.sidebarBg, color: "#fff", fontFamily: FONT, fontSize: 13, fontWeight: 500,
+          padding: "12px 18px", borderRadius: C.radius, boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+          display: "flex", alignItems: "center", gap: 10, zIndex: 100, maxWidth: 420,
+        }}>
+          <Sparkles size={15} color={C.accentLt} style={{ flexShrink: 0 }} />
+          {toast}
+          <button onClick={() => setToast(null)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", display: "flex", padding: 2, flexShrink: 0 }}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
+
+function DateFilter({ dateFrom, dateTo, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function onDocClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  const hasValue = dateFrom || dateTo;
+  const label = hasValue
+    ? `${dateFrom ? fmtDate(dateFrom) : "…"} → ${dateTo ? fmtDate(dateTo) : "…"}`
+    : "Date limite";
+
+  function preset(days) {
+    const today = new Date();
+    const end = new Date();
+    end.setDate(end.getDate() + days);
+    onChange(isoDate(today), isoDate(end));
+    setOpen(false);
+  }
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{ ...pillStyle, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", color: hasValue ? C.accent : C.ink, borderColor: hasValue ? C.accent : C.line }}
+      >
+        <Calendar size={13} /> {label} <ChevronDown size={12} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 180ms ease" }} />
+      </button>
+
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 8px)", left: 0, zIndex: 50,
+          background: C.card, border: `1px solid ${C.line}`, borderRadius: C.radius, boxShadow: C.shadow,
+          padding: 16, width: 260, animation: "sis-pop-in 160ms ease",
+        }}>
+          <style>{`@keyframes sis-pop-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }`}</style>
+
+          <p style={{ fontFamily: FONT, fontSize: 11, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: 0.4, margin: "0 0 10px" }}>
+            Raccourcis
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+            <PresetBtn label="7 prochains jours" onClick={() => preset(7)} />
+            <PresetBtn label="Ce mois-ci" onClick={() => preset(30)} />
+            <PresetBtn label="Urgent (≤ 5j)" onClick={() => preset(5)} />
+          </div>
+
+          <p style={{ fontFamily: FONT, fontSize: 11, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: 0.4, margin: "0 0 10px" }}>
+            Plage personnalisée
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <label style={{ fontFamily: FONT, fontSize: 12, color: C.mute }}>
+              Du
+              <input type="date" value={dateFrom} onChange={(e) => onChange(e.target.value, dateTo)}
+                style={dateInputStyle} />
+            </label>
+            <label style={{ fontFamily: FONT, fontSize: 12, color: C.mute }}>
+              Au
+              <input type="date" value={dateTo} onChange={(e) => onChange(dateFrom, e.target.value)}
+                style={dateInputStyle} />
+            </label>
+          </div>
+
+          {hasValue && (
+            <button onClick={() => { onChange("", ""); setOpen(false); }} style={{ ...linkBtnStyle, marginTop: 12 }}>
+              Réinitialiser
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PresetBtn({ label, onClick }) {
+  return (
+    <button onClick={onClick} style={{
+      fontFamily: FONT, fontSize: 12, fontWeight: 500, color: C.ink,
+      background: C.paper, border: `1px solid ${C.line}`, borderRadius: 20, padding: "6px 11px", cursor: "pointer",
+    }}>
+      {label}
+    </button>
+  );
+}
+
+const dateInputStyle = {
+  display: "block", width: "100%", marginTop: 4, fontFamily: FONT, fontSize: 13, color: C.ink,
+  padding: "7px 10px", borderRadius: 8, border: `1px solid ${C.line}`, background: C.paper,
+  outline: "none", boxSizing: "border-box",
+};
+const linkBtnStyle = {
+  fontFamily: FONT, fontSize: 12, fontWeight: 600, color: C.danger, background: "none",
+  border: "none", cursor: "pointer", padding: 0,
+};
 
 function FilterPill({ label, value, onChange, options }) {
   return (
@@ -367,7 +501,7 @@ function CardAction({ icon: Icon, label, onClick, disabled, primary }) {
       style={{
         display: "flex", alignItems: "center", gap: 5, fontFamily: FONT, fontSize: 11.5, fontWeight: 600,
         color: primary ? "#fff" : disabled ? C.faint : C.mute,
-        background: primary ? (disabled ? C.faint : C.accent) : "transparent",
+        background: primary ? C.accent : "transparent",
         border: primary ? "none" : `1px solid ${C.line}`,
         borderRadius: 7, padding: "6px 10px", cursor: disabled ? "default" : "pointer",
       }}

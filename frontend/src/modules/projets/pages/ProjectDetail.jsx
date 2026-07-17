@@ -10,12 +10,16 @@ import ProjectInfoTab from "./tabs/ProjectInfoTab";
 import ProjectInfoEdit from "./tabs/ProjectInfoEdit";
 import ProjectSubsTab from "./tabs/ProjectSubsTab";
 import ProjectDCETab from "./tabs/ProjectDCETab";
+import ProjectEquipeTab from "./tabs/ProjectEquipeTab";
+import ProjectDocsTab from "./tabs/ProjectDocsTab";
 import ProjectHistoryTab from "./tabs/ProjectHistoryTab";
 
 const TABS = [
   { key: "infos", label: "Infos générales" },
   { key: "subs", label: "Sous-traitants" },
   { key: "dce", label: "DCE" },
+  { key: "equipe", label: "Équipe" },
+  { key: "docs", label: "Documents" },
   { key: "historique", label: "Historique" },
 ];
 
@@ -79,7 +83,7 @@ export default function ProjectDetail() {
           )}
         </div>
 
-        <div style={{ display: "flex", gap: 24, marginTop: 16, padding: "12px 16px", background: C.paper, border: `1px solid ${C.line}`, borderRadius: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 24, marginTop: 16, padding: "12px 16px", background: C.paper, border: `1px solid ${C.line}`, borderRadius: C.radius, flexWrap: "wrap" }}>
           <SummaryItem icon={MapPin} value={project.lieu} />
           <SummaryItem icon={User} value={project.chef} />
           <SummaryItem icon={Wallet} value={fmt(project.budget)} />
@@ -88,17 +92,18 @@ export default function ProjectDetail() {
         </div>
 
         {!editing && (
-          <div style={{ display: "flex", gap: 4, marginTop: 18 }}>
+          <div style={{ display: "flex", gap: 4, marginTop: 18, flexWrap: "wrap", background: C.card, border: `1px solid ${C.line}`, borderRadius: C.radius, padding: 4, width: "fit-content" }}>
             {TABS.map((t) => (
               <button
                 key={t.key}
                 onClick={() => setTab(t.key)}
                 style={{
-                  fontFamily: FONT, fontSize: 13.5, fontWeight: 600, padding: "8px 14px",
-                  border: "none", cursor: "pointer", background: "transparent",
-                  color: tab === t.key ? C.ink : C.mute,
-                  borderBottom: tab === t.key ? `2px solid ${C.accent}` : "2px solid transparent",
-                  transition: "color 0.15s ease",
+                  fontFamily: FONT, fontSize: 13.5, fontWeight: 600, padding: "7px 14px",
+                  border: "none", cursor: "pointer", borderRadius: 8,
+                  color: tab === t.key ? "#fff" : C.mute,
+                  background: tab === t.key ? C.accent : "transparent",
+                  transition: "background 0.15s ease",
+                  whiteSpace: "nowrap",
                 }}
               >
                 {t.label}
@@ -108,7 +113,7 @@ export default function ProjectDetail() {
         )}
       </div>
 
-      <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 4 }} />
+      <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 20 }} />
 
       <div key={editing ? "edit" : tab} style={{ padding: 32, animation: "fadeIn 0.18s ease" }}>
         {editing ? (
@@ -118,6 +123,8 @@ export default function ProjectDetail() {
             {tab === "infos" && <ProjectInfoTab project={project} />}
             {tab === "subs" && <ProjectSubsTab projectId={project.id} />}
             {tab === "dce" && <ProjectDCETab projectId={project.id} />}
+            {tab === "equipe" && <ProjectEquipeTab projectId={project.id} />}
+            {tab === "docs" && <ProjectDocsTab projectId={project.id} />}
             {tab === "historique" && <ProjectHistoryTab projectId={project.id} />}
           </>
         )}
@@ -148,5 +155,5 @@ function SummaryItem({ icon: Icon, value }) {
 const iconBtnStyle = {
   display: "flex", alignItems: "center", gap: 6, fontFamily: FONT, fontSize: 13,
   fontWeight: 600, color: C.mute, background: C.card, border: `1px solid ${C.line}`,
-  borderRadius: 6, padding: "7px 12px", cursor: "pointer",
+  borderRadius: C.radius, padding: "7px 12px", cursor: "pointer",
 };

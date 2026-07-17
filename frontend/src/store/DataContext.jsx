@@ -12,7 +12,7 @@ import { SEED_MARCHES, SEED_ANALYSES } from "../lib/mockData";
 const DataContext = createContext(null);
 
 let nextMarcheId = SEED_MARCHES.length + 1;
-let nextAnalyseId = 1;
+let nextAnalyseId = SEED_ANALYSES.length + 1;
 
 export function DataProvider({ children }) {
   const [projects, setProjects] = useState([]);
@@ -275,6 +275,7 @@ export function DataProvider({ children }) {
         equipe, addEquipeMembre, updateEquipeMembre, removeEquipeMembre,
         assignEquipeToProject, unassignEquipe, getEquipeForProject, projectsForEquipeMembre,
         marches, addMarche, ignoreMarche, analyserMarche, getAnalyseForMarche, selectMarche,
+        analyses,
         subProjectCount, projectsForSub, getHistoryForProject,
         loading, error,
       }}

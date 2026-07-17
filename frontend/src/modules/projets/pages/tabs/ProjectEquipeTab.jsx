@@ -1,8 +1,8 @@
 import React, { useState } from "react";
-import { X } from "lucide-react";
-import Table from "../../../components/ui/Table";
-import { useData } from "../../../context/DataContext";
-import { C, FONT } from "../../../styles/theme";
+import { X, UserPlus } from "lucide-react";
+import Table from "../../../../components/ui/Table";
+import { useData } from "../../../../store/DataContext";
+import { C, FONT } from "../../../../styles/theme";
 
 export default function ProjectEquipeTab({ projectId }) {
   const { equipe, getEquipeForProject, assignEquipeToProject, unassignEquipe } = useData();
@@ -31,7 +31,7 @@ export default function ProjectEquipeTab({ projectId }) {
       render: (r) => (
         <button
           onClick={(e) => { e.stopPropagation(); unassignEquipe(r.id, projectId); }}
-          style={{ background: "none", border: "none", cursor: "pointer", color: C.faint }}
+          style={{ background: "none", border: "none", cursor: "pointer", color: C.faint, padding: 4 }}
         >
           <X size={14} />
         </button>
@@ -41,35 +41,50 @@ export default function ProjectEquipeTab({ projectId }) {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
         <button
           onClick={() => setShowAssign(!showAssign)}
-          style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: C.accent, background: C.accentLt, border: "none", borderRadius: 6, padding: "7px 12px", cursor: "pointer" }}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, fontFamily: FONT, fontSize: 13,
+            fontWeight: 600, color: C.accent, background: C.accentLt, border: "none",
+            borderRadius: C.radius, padding: "8px 14px", cursor: "pointer",
+          }}
         >
-          + Affecter un membre
+          <UserPlus size={14} /> Affecter un membre
         </button>
       </div>
 
       {showAssign && (
-        <div style={{ display: "flex", gap: 8, marginBottom: 14, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{
+          display: "flex", gap: 8, marginBottom: 16, alignItems: "center", flexWrap: "wrap",
+          background: C.paper, border: `1px solid ${C.line}`, borderRadius: C.radius, padding: 12,
+        }}>
           <select value={equipeId} onChange={(e) => setEquipeId(e.target.value)} style={selectStyle}>
             <option value="">Choisir un membre…</option>
             {available.map((m) => <option key={m.id} value={m.id}>{m.nom} — {m.intitule}</option>)}
           </select>
-          <input placeholder="Rôle sur ce projet" value={role} onChange={(e) => setRole(e.target.value)} style={inputStyle} />
+          <input placeholder="Rôle sur ce projet" value={role} onChange={(e) => setRole(e.target.value)} style={selectStyle} />
           <button
             onClick={handleAssign}
-            style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: "#fff", background: C.accent, border: "none", borderRadius: 6, padding: "8px 12px", cursor: "pointer" }}
+            style={{ fontFamily: FONT, fontSize: 13, fontWeight: 600, color: "#fff", background: C.accent, border: "none", borderRadius: C.radius, padding: "8px 14px", cursor: "pointer" }}
           >
             Ajouter
           </button>
         </div>
       )}
 
-      <Table columns={columns} rows={rows} />
+      {rows.length > 0 ? (
+        <Table columns={columns} rows={rows} />
+      ) : (
+        <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: C.radius, padding: 32, textAlign: "center", fontFamily: FONT, fontSize: 13.5, color: C.faint }}>
+          Aucun membre affecté à ce projet pour le moment.
+        </div>
+      )}
     </div>
   );
 }
 
-const selectStyle = { fontFamily: FONT, fontSize: 13, color: "#12182B", padding: "7px 10px", borderRadius: 6, border: "1px solid #E4E8F0", background: "#F4F6FA" };
-const inputStyle = { ...selectStyle };
+const selectStyle = {
+  fontFamily: FONT, fontSize: 13, color: C.ink, padding: "8px 12px",
+  borderRadius: C.radius, border: `1px solid ${C.line}`, background: C.card,
+};

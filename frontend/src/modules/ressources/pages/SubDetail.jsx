@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ChevronRight, Pencil, Trash2 } from "lucide-react";
+import { ChevronRight, Pencil, Trash2, Mail, Phone, IdCard } from "lucide-react";
 import { useData } from "../../../store/DataContext";
 import { fmt, fmtDate } from "../../../lib/mockData";
 import Table from "../../../components/ui/Table";
@@ -13,6 +13,15 @@ function Row({ label, value }) {
     <div style={{ display: "flex", justifyContent: "space-between", padding: "11px 0", borderBottom: `1px solid ${C.line}` }}>
       <span style={{ fontFamily: FONT, fontSize: 13, color: C.mute }}>{label}</span>
       <span style={{ fontFamily: FONT, fontSize: 13.5, color: C.ink, fontWeight: 600 }}>{value}</span>
+    </div>
+  );
+}
+
+function SummaryItem({ icon: Icon, value }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+      <Icon size={14} color={C.mute} />
+      <span style={{ fontFamily: FONT, fontSize: 13, color: C.ink, fontWeight: 500 }}>{value}</span>
     </div>
   );
 }
@@ -67,21 +76,23 @@ export default function SubDetail() {
             </button>
           </div>
         </div>
+
+        <div style={{ display: "flex", gap: 24, marginTop: 16, padding: "12px 16px", background: C.paper, border: `1px solid ${C.line}`, borderRadius: C.radius, flexWrap: "wrap" }}>
+          <SummaryItem icon={Mail} value={sub.email || "—"} />
+          <SummaryItem icon={Phone} value={sub.phone || "—"} />
+          <SummaryItem icon={IdCard} value={sub.ice ? `ICE ${sub.ice}` : "ICE non renseigné"} />
+        </div>
       </div>
 
-      <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 16 }} />
+      <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 20 }} />
 
       <div style={{ padding: 32, display: "flex", flexDirection: "column", gap: 24 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 20 }}>
-          <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: "18px 22px" }}>
-            <Row label="Contact" value={sub.contact} />
-            <Row label="Email" value={sub.email} />
-            <Row label="Téléphone" value={sub.phone} />
-          </div>
-          <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: "18px 22px" }}>
-            <Row label="ICE" value={sub.ice} />
-            <Row label="Projets affectés" value={subProjects.length} />
-          </div>
+        <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: C.radius, padding: "18px 22px", maxWidth: 480 }}>
+          <Row label="Contact" value={sub.contact} />
+          <Row label="Email" value={sub.email} />
+          <Row label="Téléphone" value={sub.phone} />
+          <Row label="ICE" value={sub.ice} />
+          <Row label="Projets affectés" value={subProjects.length} />
         </div>
 
         <div>
@@ -92,7 +103,7 @@ export default function SubDetail() {
             <Table columns={columns} rows={subProjects} onRowClick={(row) => navigate(`/projects/${row.id}`)} />
           ) : (
             <div style={{
-              background: C.card, border: `1px solid ${C.line}`, borderRadius: 8,
+              background: C.card, border: `1px solid ${C.line}`, borderRadius: C.radius,
               padding: 32, textAlign: "center", fontFamily: FONT, fontSize: 13, color: C.faint
             }}>
               Aucun projet associé pour l'instant.
@@ -116,7 +127,7 @@ export default function SubDetail() {
               onRowClick={(row) => navigate(`/contrats/${row.id}`)}
             />
           ) : (
-            <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: 32, textAlign: "center", fontFamily: FONT, fontSize: 13, color: C.faint }}>
+            <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: C.radius, padding: 32, textAlign: "center", fontFamily: FONT, fontSize: 13, color: C.faint }}>
               Aucun contrat pour ce sous-traitant.
             </div>
           )}
@@ -137,5 +148,5 @@ export default function SubDetail() {
 const iconBtnStyle = {
   display: "flex", alignItems: "center", gap: 6, fontFamily: FONT, fontSize: 13,
   fontWeight: 600, color: C.mute, background: C.card, border: `1px solid ${C.line}`,
-  borderRadius: 6, padding: "7px 12px", cursor: "pointer",
+  borderRadius: C.radius, padding: "7px 12px", cursor: "pointer",
 };

@@ -1,5 +1,7 @@
 // Client HTTP de base (fetch/axios) vers l'API FastAPI, avec attache automatique du token JWT.
-const BASE_URL = "http://localhost:8000";
+// URL configurable via VITE_API_BASE_URL (voir .env.example) — évite de casser le build
+// dès qu'on quitte le poste de dev local ou qu'on change de port.
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 async function request(path, options = {}) {
   const res = await fetch(`${BASE_URL}${path}`, {

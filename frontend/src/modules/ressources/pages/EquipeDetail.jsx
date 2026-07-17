@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ChevronRight, Pencil, Trash2 } from "lucide-react";
+import { ChevronRight, Pencil, Trash2, Mail, Phone, Briefcase } from "lucide-react";
 import { useData } from "../../../store/DataContext";
 import { fmtDate } from "../../../lib/mockData";
 import Table from "../../../components/ui/Table";
@@ -13,6 +13,15 @@ function Row({ label, value }) {
     <div style={{ display: "flex", justifyContent: "space-between", padding: "11px 0", borderBottom: `1px solid ${C.line}` }}>
       <span style={{ fontFamily: FONT, fontSize: 13, color: C.mute }}>{label}</span>
       <span style={{ fontFamily: FONT, fontSize: 13.5, color: C.ink, fontWeight: 600 }}>{value}</span>
+    </div>
+  );
+}
+
+function SummaryItem({ icon: Icon, value }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+      <Icon size={14} color={C.mute} />
+      <span style={{ fontFamily: FONT, fontSize: 13, color: C.ink, fontWeight: 500 }}>{value}</span>
     </div>
   );
 }
@@ -61,15 +70,22 @@ export default function EquipeDetail() {
             </button>
           </div>
         </div>
+
+        <div style={{ display: "flex", gap: 24, marginTop: 16, padding: "12px 16px", background: C.paper, border: `1px solid ${C.line}`, borderRadius: C.radius, flexWrap: "wrap" }}>
+          <SummaryItem icon={Briefcase} value={membre.type === "interne" ? "Interne" : "Freelance"} />
+          <SummaryItem icon={Mail} value={membre.email || "—"} />
+          <SummaryItem icon={Phone} value={membre.phone || "—"} />
+        </div>
       </div>
 
-      <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 16 }} />
+      <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 20 }} />
 
       <div style={{ padding: 32, display: "flex", flexDirection: "column", gap: 24 }}>
-        <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: "18px 22px", maxWidth: 480 }}>
+        <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: C.radius, padding: "18px 22px", maxWidth: 480 }}>
           <Row label="Type" value={membre.type === "interne" ? "Interne" : "Freelance"} />
           <Row label="Email" value={membre.email} />
           <Row label="Téléphone" value={membre.phone} />
+          <Row label="Projets affectés" value={projects.length} />
         </div>
 
         <div>
@@ -79,7 +95,7 @@ export default function EquipeDetail() {
           {projects.length > 0 ? (
             <Table columns={columns} rows={projects} onRowClick={(row) => navigate(`/projects/${row.id}`)} />
           ) : (
-            <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: 32, textAlign: "center", fontFamily: FONT, fontSize: 13, color: C.faint }}>
+            <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: C.radius, padding: 32, textAlign: "center", fontFamily: FONT, fontSize: 13, color: C.faint }}>
               Aucun projet associé pour l'instant.
             </div>
           )}
@@ -100,5 +116,5 @@ export default function EquipeDetail() {
 const iconBtnStyle = {
   display: "flex", alignItems: "center", gap: 6, fontFamily: FONT, fontSize: 13,
   fontWeight: 600, color: C.mute, background: C.card, border: `1px solid ${C.line}`,
-  borderRadius: 6, padding: "7px 12px", cursor: "pointer",
+  borderRadius: C.radius, padding: "7px 12px", cursor: "pointer",
 };

@@ -2,10 +2,10 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import {
   ChevronRight, Download, EyeOff, RotateCcw, Sparkles, AlertCircle,
-  Calendar, Building2, FileText, Wallet, Hash,
+  Calendar, Building2, FileText, Wallet, Hash, ExternalLink, X,
 } from "lucide-react";
 import {
-  fetchAppelOffre, telechargerDCE, ignorerAppelOffre, reactiverAppelOffre,
+  fetchAppelOffre, telechargerDCE, ignorerAppelOffre, reactiverAppelOffre, resolveFileUrl,
 } from "../../../services/appelsOffres";
 import Skeleton from "../../../components/ui/Skeleton";
 import { C, FONT, FONT_DISPLAY } from "../../../styles/theme";
@@ -37,6 +37,13 @@ export default function MarcheDetail() {
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState(null);
   const [updating, setUpdating] = useState(false);
+
+  const [toast, setToast] = useState(null);
+  function showSoonToast() {
+    setToast("Bientôt disponible — la conversion en Projet n'est pas encore branchée côté backend.");
+    clearTimeout(showSoonToast._t);
+    showSoonToast._t = setTimeout(() => setToast(null), 3200);
+  }
 
   async function load() {
     setLoading(true);
@@ -129,6 +136,11 @@ export default function MarcheDetail() {
           <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 24, fontWeight: 600, color: C.ink, margin: "10px 0 0", lineHeight: 1.3 }}>
             {appel.objet || "Objet non communiqué"}
           </h1>
+          {appel.url_avis && (
+            <a href={resolveFileUrl(appel.url_avis)} target="_blank" rel="noreferrer" style={{ ...secondaryBtn, marginTop: 12 }}>
+              <ExternalLink size={14} /> Voir sur Marchés Publics
+            </a>
+          )}
         </div>
       </div>
 
@@ -146,7 +158,7 @@ export default function MarcheDetail() {
         </div>
 
         {appel.url_avis && (
-          <a href={appel.url_avis} target="_blank" rel="noreferrer" style={{ ...linkBtn, marginTop: 18, display: "inline-block" }}>
+          <a href={resolveFileUrl(appel.url_avis)} target="_blank" rel="noreferrer" style={{ ...linkBtn, marginTop: 18, display: "inline-block" }}>
             Voir l'avis sur le portail →
           </a>
         )}
@@ -157,7 +169,7 @@ export default function MarcheDetail() {
           Dossier de consultation
         </p>
         {appel.url_cps ? (
-          <a href={appel.url_cps} target="_blank" rel="noreferrer" style={primaryBtn}>
+          <a href={resolveFileUrl(appel.url_cps)} target="_blank" rel="noreferrer" style={primaryBtn}>
             <Download size={14} /> Télécharger le dossier
           </a>
         ) : (
@@ -194,12 +206,25 @@ export default function MarcheDetail() {
             <EyeOff size={14} /> Ignorer
           </button>
         )}
-        <div title="Bientôt disponible — conversion en Projet pas encore branchée côté backend">
-          <button disabled style={{ ...primaryBtn, background: C.faint, cursor: "default" }}>
-            Je suis intéressé
+        <button onClick={showSoonToast} style={primaryBtn}>
+          Je suis intéressé
+        </button>
+      </div>
+
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+          background: C.ink, color: "#fff", fontFamily: FONT, fontSize: 13, fontWeight: 500,
+          padding: "12px 20px", borderRadius: 8, boxShadow: C.shadow,
+          display: "flex", alignItems: "center", gap: 10, zIndex: 9999,
+          animation: "fadeIn 0.2s ease",
+        }}>
+          <span>{toast}</span>
+          <button onClick={() => setToast(null)} style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", padding: 0, display: "flex" }}>
+            <X size={14} />
           </button>
         </div>
-      </div>
+      )}
     </div>
   );
 }

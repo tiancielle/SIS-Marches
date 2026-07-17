@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ChevronRight, Pencil, Trash2 } from "lucide-react";
+import { ChevronRight, Pencil, Trash2, FileText, Wallet, CalendarRange, Building2, HardHat } from "lucide-react";
 import { useData } from "../../../store/DataContext";
 import { fmt, fmtDate } from "../../../lib/mockData";
 import Badge from "../../../components/ui/Badge";
@@ -13,6 +13,15 @@ function Row({ label, value }) {
     <div style={{ display: "flex", justifyContent: "space-between", padding: "11px 0", borderBottom: `1px solid ${C.line}` }}>
       <span style={{ fontFamily: FONT, fontSize: 13, color: C.mute }}>{label}</span>
       <span style={{ fontFamily: FONT, fontSize: 13.5, color: C.ink, fontWeight: 600 }}>{value}</span>
+    </div>
+  );
+}
+
+function SummaryItem({ icon: Icon, value }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+      <Icon size={14} color={C.mute} />
+      <span style={{ fontFamily: FONT, fontSize: 13, color: C.ink, fontWeight: 500 }}>{value}</span>
     </div>
   );
 }
@@ -31,6 +40,10 @@ export default function ContratDetail() {
   const projet = projects.find((p) => p.id === contrat.projet_id);
   const sub = subs.find((s) => s.id === contrat.sous_traitant_id);
   const fileEntry = contratFiles[contrat.id];
+
+  const now = new Date();
+  const joursRestants = contrat.date_fin ? Math.ceil((new Date(contrat.date_fin) - now) / 86400000) : null;
+  const echeanceProche = contrat.statut === "actif" && joursRestants !== null && joursRestants >= 0 && joursRestants <= 30;
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -54,7 +67,14 @@ export default function ContratDetail() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <h1 style={{ fontFamily: FONT, fontSize: 21, fontWeight: 700, color: C.ink, margin: 0 }}>{contrat.reference}</h1>
-            <div style={{ marginTop: 6 }}><Badge status={contrat.statut} /></div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
+              <Badge status={contrat.statut} />
+              {echeanceProche && (
+                <span style={{ fontFamily: FONT, fontSize: 12, fontWeight: 600, color: C.warning }}>
+                  · échéance dans {joursRestants} j
+                </span>
+              )}
+            </div>
           </div>
 
           <div style={{ display: "flex", gap: 8 }}>
@@ -66,12 +86,19 @@ export default function ContratDetail() {
             </button>
           </div>
         </div>
+
+        <div style={{ display: "flex", gap: 24, marginTop: 16, padding: "12px 16px", background: C.paper, border: `1px solid ${C.line}`, borderRadius: C.radius, flexWrap: "wrap" }}>
+          <SummaryItem icon={Building2} value={projet ? projet.nom : "Aucun projet lié"} />
+          <SummaryItem icon={HardHat} value={sub ? sub.name : "Aucun sous-traitant"} />
+          <SummaryItem icon={Wallet} value={fmt(contrat.montant)} />
+          <SummaryItem icon={CalendarRange} value={`${fmtDate(contrat.date_debut)} → ${fmtDate(contrat.date_fin)}`} />
+        </div>
       </div>
 
-      <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 16 }} />
+      <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 20 }} />
 
       <div style={{ padding: 32 }}>
-        <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 8, padding: "18px 22px", maxWidth: 480 }}>
+        <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: C.radius, padding: "18px 22px", maxWidth: 480 }}>
           <Row label="Projet" value={projet ? <Link to={`/projects/${projet.id}`} style={{ color: C.accent }}>{projet.nom}</Link> : "—"} />
           <Row label="Sous-traitant" value={sub ? <Link to={`/sous-traitants/${sub.id}`} style={{ color: C.accent }}>{sub.name}</Link> : "—"} />
           <Row label="Montant" value={fmt(contrat.montant)} />
@@ -79,12 +106,13 @@ export default function ContratDetail() {
           <Row label="Date fin" value={fmtDate(contrat.date_fin)} />
           <Row label="Document" value={contrat.document_nom || "Aucun"} />
           {fileEntry && (
-            <div style={{ padding: "11px 0" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "11px 0" }}>
+              <FileText size={14} color={C.accent} />
               <span
                 onClick={() => window.open(fileEntry.fileUrl, "_blank")}
                 style={{ color: C.accent, fontFamily: FONT, fontSize: 13, fontWeight: 600, cursor: "pointer" }}
               >
-                📄 Voir le fichier ({fileEntry.fileName})
+                Voir le fichier ({fileEntry.fileName})
               </span>
             </div>
           )}
@@ -116,5 +144,5 @@ export default function ContratDetail() {
 const iconBtnStyle = {
   display: "flex", alignItems: "center", gap: 6, fontFamily: FONT, fontSize: 13,
   fontWeight: 600, color: C.mute, background: C.card, border: `1px solid ${C.line}`,
-  borderRadius: 6, padding: "7px 12px", cursor: "pointer",
+  borderRadius: C.radius, padding: "7px 12px", cursor: "pointer",
 };

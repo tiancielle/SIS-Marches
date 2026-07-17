@@ -1,8 +1,11 @@
 // Appels API pour le module Appels d'Offres (veille des marchés publics).
-// Aligné sur backend/app/routers/appel_offres.py — ne pas ajouter d'appel
-// vers un endpoint qui n'existe pas côté backend (ex: pas de POST de création
-// manuelle, pas d'endpoint "intéressé" pour l'instant).
-import { api } from "./client";
+import { api, BASE_URL } from "./client";
+
+export function resolveFileUrl(path) {
+  if (!path) return null;
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
+  return `${BASE_URL}${path.replace(/^\./, "")}`;
+}
 
 export const fetchAppelsOffres = (statut) =>
   api.get(statut ? `/appels-offres/?statut=${encodeURIComponent(statut)}` : "/appels-offres/");

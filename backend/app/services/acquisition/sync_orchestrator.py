@@ -23,6 +23,7 @@ from .detail_navigator import open_detail
 from .dce_downloader import download_dce
 from .ai_analysis_stub import analyser_appel_offres
 from .normalizer import extract_form_fields
+from .domain_filter import is_relevant
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,10 @@ def run(db: DbSession) -> dict:
             for row in raw_rows:
                 if row["reference"] in existing_refs:
                     nb_doublons += 1
+                    continue
+
+                # Filtre de domaine : ignorer silencieusement les avis hors des 3 domaines ciblés
+                if not is_relevant(row["objet"], row["organisme"]):
                     continue
 
                 try:

@@ -1,0 +1,18 @@
+# Environnement et secrets
+.env
+*.env
+
+# Fichiers uploadés et bases de données
+backend/uploads/
+*.zip
+*.db
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# end

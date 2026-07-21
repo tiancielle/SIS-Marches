@@ -11,6 +11,7 @@ from app.models import contrat
 from app.models import dce
 from app.models import equipe, projet_equipe
 from app.models import appel_offres, analyse_ia  # noqa: F401 — nouveau module
+from app.models import dce_document, analyse_dce  # noqa: F401 — pipeline de traitement des DCE
 
 Base.metadata.create_all(bind=engine)
 

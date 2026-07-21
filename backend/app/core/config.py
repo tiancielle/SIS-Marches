@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     scheduler_hour: int = 6
     scheduler_minute: int = 0
 
+
+    # Pipeline de traitement des DCE (extraction + analyse IA)
+    dce_extracted_storage_path: str = "./uploads/dce_extracted"
+    github_models_token: str = ""  # via .env : GITHUB_MODELS_TOKEN=...
+    dce_analysis_model: str = "openai/gpt-4o"  # préfixe "openai/" obligatoire sur GitHub Models
+    dce_context_max_chars: int = 60000  # taille max du contexte texte envoyé au LLM
+
     class Config:
         env_file = ".env"
 

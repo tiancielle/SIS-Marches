@@ -2,7 +2,13 @@
 Orchestrateur de la veille quotidienne :
 session -> critères (catégorie Services + dates depuis dernière synchro) ->
 parcours de toutes les pages -> dédoublonnage -> pour chaque nouvel avis :
-fiche détail + téléchargement DCE + analyse IA (stub) -> persistance.
+fiche détail + analyse IA niveau 1 (stub) -> persistance des métadonnées.
+
+Lazy loading : cette fonction NE télécharge PAS les DCE. Elle ne persiste que
+les métadonnées de chaque avis (url_cps reste None). Le téléchargement du DCE
+et son traitement (niveau 2) restent des opérations séparées, déclenchées à la
+demande via POST /{id}/telecharger-dce et POST /{id}/traiter-dce
+(voir download_dce_for ci-dessous, et app.services.dce_processing.dce_pipeline).
 
 Conçu pour être appelé aussi bien par l'endpoint HTTP manuel que par le
 scheduler (fonction pure, ne dépend pas du cycle de requête FastAPI).
@@ -129,13 +135,10 @@ def _run_locked(db: DbSession) -> dict:
                     db.commit()
                     db.refresh(appel)
 
-                    dce_result = download_dce(client, row["ref_consultation"], row["org_acronyme"])
-                    if dce_result.get("success"):
-                        appel.url_cps = dce_result["url_cps"]
-                        db.commit()
-                    else:
-                        logger.warning(f"DCE non récupéré pour {row['reference']}: {dce_result.get('reason')}")
-
+                    # Lazy loading : le DCE n'est plus téléchargé ici. La synchro ne
+                    # persiste que les métadonnées (appel.url_cps reste None) ; le
+                    # téléchargement se fait à la demande via POST /{id}/telecharger-dce,
+                    # déclenché par le frontend à l'ouverture de l'avis ou via /traiter-dce.
                     analyser_appel_offres(appel.id)
 
                     nb_nouveaux += 1

@@ -37,7 +37,11 @@ class PortalClient:
         for attempt in range(max_retries):
             try:
                 return getattr(self.session, method)(url, timeout=self.timeout, **kwargs)
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+            except (
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+                requests.exceptions.ChunkedEncodingError,
+            ) as exc:
                 last_exc = exc
                 time.sleep(1.5 * (attempt + 1))  # backoff progressif
         raise last_exc

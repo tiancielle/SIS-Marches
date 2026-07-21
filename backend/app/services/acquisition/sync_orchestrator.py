@@ -8,6 +8,7 @@ Conçu pour être appelé aussi bien par l'endpoint HTTP manuel que par le
 scheduler (fonction pure, ne dépend pas du cycle de requête FastAPI).
 """
 import logging
+import threading
 from datetime import datetime
 from sqlalchemy.orm import Session as DbSession
 
@@ -27,6 +28,13 @@ from .domain_filter import is_relevant
 
 logger = logging.getLogger(__name__)
 
+# Verrou en mémoire — la vraie protection contre l'exécution concurrente au sein d'un
+# même process. Le flag `SyncState.en_cours` en base reste utile pour détecter un crash
+# après un redémarrage du serveur (le lock en mémoire, lui, est remis à zéro au restart),
+# mais seul ce Lock empêche deux requêtes quasi simultanées (double-clic, retry frontend)
+# de scraper en parallèle et de se marcher dessus sur les mêmes références.
+_sync_lock = threading.Lock()
+
 
 def _get_or_create_sync_state(db: DbSession) -> SyncState:
     state = db.query(SyncState).filter(SyncState.source == "appel_offres").first()
@@ -39,10 +47,7 @@ def _get_or_create_sync_state(db: DbSession) -> SyncState:
 
 
 def run(db: DbSession) -> dict:
-    sync_state = _get_or_create_sync_state(db)
-
-    # Garde de concurrence : empêcher les exécutions simultanées
-    if sync_state.en_cours:
+    if not _sync_lock.acquire(blocking=False):
         return {
             "nb_trouves": 0,
             "nb_nouveaux": 0,
@@ -51,6 +56,28 @@ def run(db: DbSession) -> dict:
             "references_nouvelles": [],
             "message": "Une synchronisation est déjà en cours, ignorée.",
         }
+
+    try:
+        return _run_locked(db)
+    finally:
+        _sync_lock.release()
+
+
+def _run_locked(db: DbSession) -> dict:
+    sync_state = _get_or_create_sync_state(db)
+
+    # Le Lock ci-dessus a déjà réglé la concurrence réelle. Ce flag en base ne sert
+    # plus qu'à signaler un crash précédent (utile pour un futur diagnostic/monitoring),
+    # jamais à bloquer — on l'écrase toujours ici sans condition.
+    if sync_state.en_cours:
+        age_minutes = (datetime.now() - sync_state.updated_at.replace(tzinfo=None)).total_seconds() / 60 \
+            if sync_state.updated_at else None
+        logger.warning(
+            f"SyncState.en_cours était déjà à True (âge : "
+            f"{f'{age_minutes:.0f} min' if age_minutes is not None else 'inconnu'}) — "
+            f"probablement un process interrompu lors d'un run précédent. Sans incidence "
+            f"ici grâce au verrou en mémoire, on repart normalement."
+        )
 
     # Marquer comme en cours
     sync_state.en_cours = True
@@ -129,13 +156,17 @@ def run(db: DbSession) -> dict:
         sync_state.en_cours = False
         db.commit()
 
-    return {
+    resultat = {
         "nb_trouves": nb_trouves,
         "nb_nouveaux": nb_nouveaux,
         "nb_doublons": nb_doublons,
         "nb_erreurs": nb_erreurs,
         "references_nouvelles": references_nouvelles,
     }
+    # Essentiel : /synchroniser tourne en tâche de fond, ce résumé ne sera jamais lu
+    # nulle part ailleurs — sans ce log, ces chiffres sont perdus pour de bon.
+    logger.info(f"Synchronisation terminée : {resultat}")
+    return resultat
 
 
 def download_dce_for(db: DbSession, appel_id: int) -> dict:

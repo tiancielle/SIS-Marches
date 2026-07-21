@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
+import requests
 from app.core.database import get_db, SessionLocal
 from app.models.appel_offres import AppelOffres
 from app.models.analyse_dce import AnalyseDce
@@ -43,7 +44,15 @@ def synchroniser(background_tasks: BackgroundTasks, db: Session = Depends(get_db
 
 @router.post("/{appel_id}/telecharger-dce", response_model=DceDownloadResult)
 def telecharger_dce(appel_id: int, db: Session = Depends(get_db)):
-    result = sync_orchestrator.download_dce_for(db, appel_id)
+    try:
+        result = sync_orchestrator.download_dce_for(db, appel_id)
+    except requests.exceptions.RequestException as exc:
+        # Panne réseau vers le portail (timeout, connexion coupée...) — pas une erreur
+        # de notre code, mais l'API ne doit pas planter en 500 brut pour autant.
+        raise HTTPException(
+            status_code=502,
+            detail=f"Le portail des marchés publics n'a pas répondu à temps ou a coupé la connexion : {exc}. Réessaie.",
+        )
     if not result.get("success"):
         raise HTTPException(status_code=502, detail=result.get("reason", "Échec du téléchargement"))
     return result

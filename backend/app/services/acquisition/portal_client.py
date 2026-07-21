@@ -37,7 +37,7 @@ class PortalClient:
         for attempt in range(max_retries):
             try:
                 return getattr(self.session, method)(url, timeout=self.timeout, **kwargs)
-            except requests.exceptions.ConnectionError as exc:
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
                 last_exc = exc
                 time.sleep(1.5 * (attempt + 1))  # backoff progressif
         raise last_exc
@@ -50,13 +50,3 @@ class PortalClient:
 
     def close(self):
         self.session.close()
-
-    # def _request_with_retry(self, method, url, max_retries=3, **kwargs):
-    # last_exc = None
-    # for attempt in range(max_retries):
-    #     try:
-    #         return getattr(self.session, method)(url, timeout=self.timeout, **kwargs)
-    #     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
-    #         last_exc = exc
-    #         time.sleep(1.5 * (attempt + 1))
-    # raise last_exc

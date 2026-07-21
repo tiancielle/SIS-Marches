@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     # Portail des marchés publics
     portal_base_url: str = "https://www.marchespublics.gov.ma"
     portal_search_path: str = "/index.php?page=entreprise.EntrepriseAdvancedSearch&searchAnnCons"
-    portal_timeout_seconds: int = 20
+    portal_timeout_seconds: int = 60
     sync_max_auto_analyse: int = 20  # plafond d'analyse IA auto par synchro (règle métier 4.2)
 
     # Formulaire d'identité pour le retrait du DCE (valeurs non vérifiées par le portail)
@@ -35,6 +35,11 @@ class Settings(BaseSettings):
 
     # Sécurité : nombre max de pages parcourues par run
     sync_max_pages: int = 50
+
+    # Si en_cours reste bloqué à True plus longtemps que ça (process tué en plein
+    # milieu, ex. --reload), on considère le verrou périmé plutôt que de bloquer
+    # indéfiniment les synchros suivantes.
+    sync_stale_lock_minutes: int = 15
 
     # Scheduler
     scheduler_enabled: bool = True

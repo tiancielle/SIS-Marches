@@ -1,15 +1,40 @@
-# Environnement et secrets
+# Secrets et environnements
 .env
 *.env
 
-# Fichiers uploadés et bases de données
+# Dossier uploads et tout son contenu (zip, extraits, etc.)
 backend/uploads/
-*.zip
+uploads/
+
+# Fichiers de base de données locale
 *.db
 
-# Python
+# Fichiers compilés Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+
+# OS
+.DS_Store
+Thumbs.db# Secrets et environnements
+.env
+*.env
+
+# Dossier uploads et tout son contenu (zip, extraits, etc.)
+backend/uploads/
+uploads/
+
+# Fichiers de base de données locale
+*.db
+
+# Fichiers compilés Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
 
 # OS
 .DS_Store

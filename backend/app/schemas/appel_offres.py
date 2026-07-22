@@ -12,6 +12,8 @@ class AppelOffresBase(BaseModel):
     url_avis: Optional[str] = None
     url_cps: Optional[str] = None
     statut: str = "nouveau"
+    dce_statut: str = "NON_TELECHARGE"
+    dce_erreur: Optional[str] = None
     ref_consultation: Optional[str] = None
     org_acronyme: Optional[str] = None
 
@@ -34,3 +36,4 @@ class DceDownloadResult(BaseModel):
     success: bool
     url_cps: Optional[str] = None
     reason: Optional[str] = None
+    cached: bool = False

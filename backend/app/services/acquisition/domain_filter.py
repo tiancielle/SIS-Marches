@@ -27,7 +27,14 @@ _EXCLUDE_RE = re.compile("|".join(EXCLUDE_KEYWORDS), re.IGNORECASE)
 
 
 def is_relevant(objet: str | None, organisme: str | None = None) -> bool:
-    text = " ".join(filter(None, [objet, organisme]))
+    """Ne scanne que l'objet du marché. L'organisme est volontairement exclu du texte
+    analysé : une quantité énorme d'organismes marocains s'appellent littéralement
+    "Conseil Régional/Provincial/Communal de X" — inclure l'organisme faisait matcher
+    le mot-clé "conseil" sur des AO de travaux/BTP/agriculture sans rapport avec le
+    domaine visé. Le paramètre `organisme` est gardé dans la signature pour ne pas
+    casser les appelants existants, mais n'est plus utilisé.
+    """
+    text = objet or ""
     if not text:
         return False
     if _EXCLUDE_RE.search(text):

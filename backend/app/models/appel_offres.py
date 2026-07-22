@@ -15,6 +15,12 @@ class AppelOffres(Base):
     url_cps = Column(String, nullable=True)  # chemin local du zip une fois téléchargé
     date_import = Column(DateTime(timezone=True), server_default=func.now())
     statut = Column(String, nullable=False, default="nouveau")  # nouveau | analyse | interesse | ignore
+
+    # Statut explicite du cycle de vie du DCE, distinct de `statut` (métier) —
+    # permet au frontend de savoir exactement quoi afficher sans deviner à partir
+    # de url_cps seul. NON_TELECHARGE | TELECHARGEMENT | TELECHARGE | ERREUR
+    dce_statut = Column(String, nullable=False, default="NON_TELECHARGE")
+    dce_erreur = Column(Text, nullable=True)
     
     # Identifiants internes du portail (nécessaires pour reconstruire les URLs fiche/téléchargement)
     ref_consultation = Column(String, nullable=True, index=True)

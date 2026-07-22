@@ -8,6 +8,7 @@ import {
   fetchAppelsOffres, synchroniserAppelsOffres, telechargerDCE, ignorerAppelOffre, reactiverAppelOffre,
   resolveFileUrl,
 } from "../../../services/appelsOffres";
+import ConfirmModal from "../../../components/ui/ConfirmModal";
 import Skeleton from "../../../components/ui/Skeleton";
 import { C, FONT, FONT_DISPLAY } from "../../../styles/theme";
 
@@ -56,6 +57,8 @@ export default function MarchesView() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
+  const [confirmIgnorerId, setConfirmIgnorerId] = useState(null);
+
   const [toast, setToast] = useState(null);
   function showSoonToast() {
     setToast("Bientôt disponible — la conversion en Projet n'est pas encore branchée côté backend.");
@@ -94,6 +97,7 @@ export default function MarchesView() {
   }
 
   async function handleIgnorer(id) {
+    setConfirmIgnorerId(null);
     setAppels((prev) => prev.map((a) => (a.id === id ? { ...a, statut: "ignore" } : a)));
     try {
       await ignorerAppelOffre(id);
@@ -346,7 +350,7 @@ export default function MarchesView() {
                   {a.statut === "ignore" ? (
                     <CardAction icon={RotateCcw} label="Réactiver" onClick={() => handleReactiver(a.id)} />
                   ) : (
-                    <CardAction icon={EyeOff} label="Ignorer" onClick={() => handleIgnorer(a.id)} />
+                    <CardAction icon={EyeOff} label="Ignorer" onClick={() => setConfirmIgnorerId(a.id)} />
                   )}
                   <CardAction primary label="Je suis intéressé" onClick={showSoonToast} />
                 </div>
@@ -354,6 +358,16 @@ export default function MarchesView() {
             );
           })}
         </div>
+      )}
+
+      {confirmIgnorerId !== null && (
+        <ConfirmModal
+          title="Ignorer cet appel d'offres ?"
+          message="Il sortira de la liste principale mais restera consultable via le filtre « Ignorés », réversible à tout moment."
+          confirmLabel="Ignorer"
+          onCancel={() => setConfirmIgnorerId(null)}
+          onConfirm={() => handleIgnorer(confirmIgnorerId)}
+        />
       )}
 
       {toast && (

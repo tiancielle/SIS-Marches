@@ -23,35 +23,26 @@ export default function AnalyseDcePanel({ appelOffresId, urlCps }) {
   const [docsLoading, setDocsLoading] = useState(false);
 
   const pollRef = useRef(null);
-  const triggeredRef = useRef(false);
 
   async function checkOnce() {
     try {
       const data = await fetchAnalyseDce(appelOffresId);
       setAnalyse(data);
       setError(null);
-      triggeredRef.current = true;
-      if (TERMINAL.includes(data.statut)) {
+      
+      if (data.statut === "non_analyse") {
+        setPhase("not_started");
+        stopPolling();
+      } else if (TERMINAL.includes(data.statut)) {
         setPhase("done");
         stopPolling();
       } else {
         setPhase("polling");
       }
     } catch (e) {
-      if (e.status === 404) {
-        if (triggeredRef.current) {
-          // Le traitement vient d'être lancé mais la ligne n'est pas encore en base —
-          // ce n'est pas "jamais lancé", on reste en attente et le prochain poll retentera.
-          setPhase("polling");
-        } else {
-          setPhase("not_started");
-          stopPolling();
-        }
-      } else {
-        setError(e.message);
-        setPhase("error");
-        stopPolling();
-      }
+      setError(e.message);
+      setPhase("error");
+      stopPolling();
     }
   }
 
@@ -59,6 +50,7 @@ export default function AnalyseDcePanel({ appelOffresId, urlCps }) {
     stopPolling();
     pollRef.current = setInterval(checkOnce, POLL_MS);
   }
+  
   function stopPolling() {
     if (pollRef.current) {
       clearInterval(pollRef.current);
@@ -82,10 +74,8 @@ export default function AnalyseDcePanel({ appelOffresId, urlCps }) {
   async function handleLancer() {
     setTriggering(true);
     setError(null);
-    triggeredRef.current = true;
     try {
       await traiterDce(appelOffresId);
-      setPhase("polling");
       await checkOnce();
     } catch (e) {
       setError(e.message);
@@ -168,7 +158,7 @@ export default function AnalyseDcePanel({ appelOffresId, urlCps }) {
         </div>
       )}
 
-      {/* erreur réseau réelle (pas un 404) */}
+      {/* erreur réseau réelle */}
       {phase === "error" && (
         <div>
           <p style={{ fontFamily: FONT, fontSize: 13, color: C.danger, display: "flex", alignItems: "center", gap: 6, margin: "0 0 10px" }}>

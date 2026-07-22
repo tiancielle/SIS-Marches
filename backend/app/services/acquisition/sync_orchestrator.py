@@ -14,6 +14,7 @@ Conçu pour être appelé aussi bien par l'endpoint HTTP manuel que par le
 scheduler (fonction pure, ne dépend pas du cycle de requête FastAPI).
 """
 import logging
+import os
 import threading
 from datetime import datetime
 from sqlalchemy.orm import Session as DbSession
@@ -40,6 +41,19 @@ logger = logging.getLogger(__name__)
 # mais seul ce Lock empêche deux requêtes quasi simultanées (double-clic, retry frontend)
 # de scraper en parallèle et de se marcher dessus sur les mêmes références.
 _sync_lock = threading.Lock()
+
+# Un verrou par appel_offres_id pour le téléchargement DCE à la demande — distinct
+# du verrou de sync ci-dessus. Protège contre un double-clic ou un retry frontend
+# qui déclencherait deux téléchargements concurrents pour le même AO.
+_dce_locks: dict[int, threading.Lock] = {}
+_dce_locks_guard = threading.Lock()
+
+
+def _get_dce_lock(appel_id: int) -> threading.Lock:
+    with _dce_locks_guard:
+        if appel_id not in _dce_locks:
+            _dce_locks[appel_id] = threading.Lock()
+        return _dce_locks[appel_id]
 
 
 def _get_or_create_sync_state(db: DbSession) -> SyncState:
@@ -114,8 +128,8 @@ def _run_locked(db: DbSession) -> dict:
                     nb_doublons += 1
                     continue
 
-                # Filtre de domaine : ignorer silencieusement les avis hors des 3 domaines ciblés
-                if not is_relevant(row["objet"], row["organisme"]):
+                # Filtre de domaine (objet uniquement — jamais l'organisme, cf. domain_filter.py)
+                if not is_relevant(row["objet"]):
                     continue
 
                 try:
@@ -173,20 +187,63 @@ def _run_locked(db: DbSession) -> dict:
 
 
 def download_dce_for(db: DbSession, appel_id: int) -> dict:
-    """Téléchargement manuel à la demande — gardé pour compatibilité de l'endpoint existant."""
+    """Téléchargement à la demande, avec cache réel et protection anti-double-clic.
+
+    Cache : on ne considère le DCE comme déjà disponible que si `url_cps` est
+    renseigné ET que le fichier existe réellement sur disque (si l'utilisateur
+    supprime le zip manuellement, on retélécharge plutôt que de renvoyer un
+    chemin mort).
+
+    Concurrence : un verrou par appel_offres_id empêche un double-clic (ou un
+    retry frontend pendant que la première requête tourne encore) de déclencher
+    deux téléchargements en parallèle contre le portail. Le verrou protège même
+    si le frontend a un bug — le backend refuse explicitement en 409-like
+    (via le champ `in_progress`) plutôt que de dupliquer le travail.
+    """
     appel = db.query(AppelOffres).filter(AppelOffres.id == appel_id).first()
     if not appel:
         return {"success": False, "reason": "Appel d'offres introuvable"}
+
+    if appel.url_cps and os.path.exists(appel.url_cps):
+        return {"success": True, "url_cps": appel.url_cps, "cached": True}
+
     if not appel.ref_consultation or not appel.org_acronyme:
         return {"success": False, "reason": "Identifiants portail manquants"}
 
-    client = PortalClient()
-    try:
-        result = download_dce(client, appel.ref_consultation, appel.org_acronyme)
-    finally:
-        client.close()
+    lock = _get_dce_lock(appel_id)
+    if not lock.acquire(blocking=False):
+        return {
+            "success": False,
+            "reason": "DCE déjà en cours de téléchargement pour cet appel d'offres.",
+            "in_progress": True,
+        }
 
-    if result.get("success"):
-        appel.url_cps = result["url_cps"]
+    try:
+        appel.dce_statut = "TELECHARGEMENT"
+        appel.dce_erreur = None
         db.commit()
-    return result
+
+        client = PortalClient()
+        try:
+            result = download_dce(client, appel.ref_consultation, appel.org_acronyme)
+        finally:
+            client.close()
+
+        if result.get("success"):
+            appel.url_cps = result["url_cps"]
+            appel.dce_statut = "TELECHARGE"
+            appel.dce_erreur = None
+        else:
+            appel.dce_statut = "ERREUR"
+            appel.dce_erreur = result.get("reason")
+        db.commit()
+        return result
+
+    except Exception as exc:
+        appel.dce_statut = "ERREUR"
+        appel.dce_erreur = str(exc)
+        db.commit()
+        raise
+
+    finally:
+        lock.release()

@@ -1,13 +1,14 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import {
-  ChevronRight, Download, EyeOff, RotateCcw, AlertCircle,
+  ChevronRight, Download, EyeOff, RotateCcw, AlertCircle, RefreshCw,
   Calendar, Building2, FileText, Wallet, Hash, ExternalLink, X,
 } from "lucide-react";
 import {
   fetchAppelOffre, telechargerDCE, ignorerAppelOffre, reactiverAppelOffre, resolveFileUrl,
 } from "../../../services/appelsOffres";
 import AnalyseDcePanel from "./AnalyseDcePanel";
+import ConfirmModal from "../../../components/ui/ConfirmModal";
 import Skeleton from "../../../components/ui/Skeleton";
 import { C, FONT, FONT_DISPLAY } from "../../../styles/theme";
 
@@ -38,6 +39,7 @@ export default function MarcheDetail() {
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState(null);
   const [updating, setUpdating] = useState(false);
+  const [confirmIgnorer, setConfirmIgnorer] = useState(false);
 
   const [toast, setToast] = useState(null);
   function showSoonToast() {
@@ -61,20 +63,41 @@ export default function MarcheDetail() {
 
   useEffect(() => { load(); }, [id]);
 
+  const dcePollRef = useRef(null);
+
+  useEffect(() => {
+    function stop() {
+      if (dcePollRef.current) { clearInterval(dcePollRef.current); dcePollRef.current = null; }
+    }
+    if (appel?.statut_dce === "telechargement") {
+      stop();
+      dcePollRef.current = setInterval(async () => {
+        try { setAppel(await fetchAppelOffre(id)); } catch (e) {}
+      }, 4000);
+    } else {
+      stop();
+    }
+    return stop;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appel?.statut_dce]);
+
   async function handleDownload() {
     setDownloading(true);
     setDownloadError(null);
+    setAppel((prev) => ({ ...prev, statut_dce: "telechargement" }));
     try {
       const res = await telechargerDCE(id);
-      setAppel((prev) => ({ ...prev, url_cps: res.url_cps }));
+      setAppel((prev) => ({ ...prev, url_cps: res.url_cps, statut_dce: "telecharge" }));
     } catch (e) {
       setDownloadError(e.message);
+      setAppel((prev) => ({ ...prev, statut_dce: "erreur" }));
     } finally {
       setDownloading(false);
     }
   }
 
   async function handleIgnorer() {
+    setConfirmIgnorer(false);
     setUpdating(true);
     try {
       const updated = await ignorerAppelOffre(id);
@@ -169,30 +192,50 @@ export default function MarcheDetail() {
         <p style={{ fontFamily: FONT, fontSize: 11, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: 0.5, margin: "0 0 14px" }}>
           Dossier de consultation
         </p>
-        {appel.url_cps ? (
-          <a href={resolveFileUrl(appel.url_cps)} target="_blank" rel="noreferrer" style={primaryBtn}>
-            <Download size={14} /> Télécharger le dossier
-          </a>
-        ) : (
-          <>
+        {(() => {
+          const statutDce = appel.statut_dce || (appel.url_cps ? "telecharge" : "non_telecharge");
+
+          if (statutDce === "telecharge" && appel.url_cps) {
+            return (
+              <a href={resolveFileUrl(appel.url_cps)} target="_blank" rel="noreferrer" style={primaryBtn}>
+                <Download size={14} /> Télécharger le dossier
+              </a>
+            );
+          }
+          if (statutDce === "telechargement") {
+            return (
+              <div>
+                <button disabled style={{ ...primaryBtn, background: C.faint, cursor: "default" }}>
+                  <RefreshCw size={14} style={{ animation: "sis-spin 900ms linear infinite" }} /> Téléchargement en cours…
+                </button>
+                <style>{`@keyframes sis-spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
+                <p style={{ fontFamily: FONT, fontSize: 12, color: C.mute, marginTop: 8 }}>
+                  Le portail peut être lent — ça peut prendre jusqu'à une minute.
+                </p>
+              </div>
+            );
+          }
+          if (statutDce === "erreur") {
+            return (
+              <div>
+                <p style={{ fontFamily: FONT, fontSize: 12.5, color: C.danger, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                  <AlertCircle size={14} /> {downloadError || "Le téléchargement du dossier a échoué."}
+                </p>
+                <button onClick={handleDownload} disabled={downloading} style={{ ...primaryBtn, background: downloading ? C.faint : C.accent, cursor: downloading ? "default" : "pointer" }}>
+                  <RotateCcw size={14} /> Réessayer
+                </button>
+              </div>
+            );
+          }
+          return (
             <button onClick={handleDownload} disabled={downloading} style={{ ...primaryBtn, background: downloading ? C.faint : C.accent, cursor: downloading ? "default" : "pointer" }}>
-              <Download size={14} /> {downloading ? "Récupération en cours…" : "Récupérer le dossier"}
+              <Download size={14} /> {downloading ? "Lancement…" : "Récupérer le dossier"}
             </button>
-            {downloading && (
-              <p style={{ fontFamily: FONT, fontSize: 12, color: C.mute, marginTop: 8 }}>
-                Le portail peut être lent — ça peut prendre jusqu'à une minute.
-              </p>
-            )}
-            {downloadError && (
-              <p style={{ fontFamily: FONT, fontSize: 12, color: C.danger, marginTop: 8, display: "flex", alignItems: "center", gap: 5 }}>
-                <AlertCircle size={13} /> {downloadError}
-              </p>
-            )}
-          </>
-        )}
+          );
+        })()}
       </div>
 
-      <AnalyseDcePanel appelOffresId={appel.id} urlCps={appel.url_cps} />
+      <AnalyseDcePanel appelOffresId={appel.id} urlCps={appel.url_cps} appel={appel} />
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         {appel.statut === "ignore" ? (
@@ -200,7 +243,7 @@ export default function MarcheDetail() {
             <RotateCcw size={14} /> Réactiver
           </button>
         ) : (
-          <button onClick={handleIgnorer} disabled={updating} style={secondaryBtn}>
+          <button onClick={() => setConfirmIgnorer(true)} disabled={updating} style={secondaryBtn}>
             <EyeOff size={14} /> Ignorer
           </button>
         )}
@@ -208,6 +251,16 @@ export default function MarcheDetail() {
           Je suis intéressé
         </button>
       </div>
+
+      {confirmIgnorer && (
+        <ConfirmModal
+          title="Ignorer cet appel d'offres ?"
+          message="Il sortira de la liste principale mais restera consultable via le filtre « Ignorés », réversible à tout moment."
+          confirmLabel="Ignorer"
+          onCancel={() => setConfirmIgnorer(false)}
+          onConfirm={handleIgnorer}
+        />
+      )}
 
       {toast && (
         <div style={{

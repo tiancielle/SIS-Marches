@@ -3,9 +3,7 @@
 Décision produit : on extrait toujours le document dans son intégralité (pas de
 plafond de pages/taille) — la troncature n'intervient que plus tard, au niveau du
 contexte envoyé au LLM (voir context_builder.py). Pour rester raisonnable en mémoire
-sur les gros PDF (un cas à 76 Mo a été observé en test), l'écriture du texte extrait
-se fait de façon incrémentale, page par page / feuille par feuille, directement sur
-disque, plutôt que d'accumuler une immense chaîne en mémoire avant de l'écrire.
+sur les gros PDF, l'écriture du texte extrait se fait de façon incrémentale.
 """
 import os
 from dataclasses import dataclass
@@ -48,7 +46,7 @@ def _extract_pdf(path: str, out_path: str) -> tuple[int, Optional[str]]:
             return total_chars, None
         # texte vide -> probablement un PDF scanné (image) ; pas une erreur d'extraction
         return 0, None
-    except Exception as pdfplumber_error:  # noqa: BLE001 — on veut absolument retenter avant d'abandonner
+    except Exception as pdfplumber_error:  # noqa: BLE001
         try:
             from pypdf import PdfReader
             reader = PdfReader(path)
@@ -66,6 +64,7 @@ def _extract_pdf(path: str, out_path: str) -> tuple[int, Optional[str]]:
 
 
 def _extract_docx(path: str, out_path: str) -> tuple[int, Optional[str]]:
+    """Extraction des fichiers .docx (Word 2007+) via python-docx."""
     try:
         import docx
         document = docx.Document(path)
@@ -89,19 +88,26 @@ def _extract_docx(path: str, out_path: str) -> tuple[int, Optional[str]]:
 
 
 def _extract_doc(path: str, out_path: str) -> tuple[int, Optional[str], str]:
-    """Ancien format binaire .doc — nécessite Pandoc installé sur la machine (statut
-    inconnu, à vérifier). En son absence ou en cas d'échec, on dégrade proprement en
-    'non_supporte' plutôt que de faire planter le pipeline."""
+    """
+    Ancien format binaire .doc (Word 97-2003).
+    Pandoc sur Windows ne supporte souvent pas la lecture native du .doc sans 
+    outils externes (comme antiword). On gère l'échec proprement pour ne pas 
+    bloquer tout le pipeline.
+    """
     try:
         import pypandoc
-        text = pypandoc.convert_file(path, "plain")
+        # On force explicitement le format d'entrée 'doc'
+        text = pypandoc.convert_file(path, "plain", format="doc")
         with open(out_path, "w", encoding="utf-8") as out:
             out.write(text)
         return len(text), None, "succes"
+    except RuntimeError as exc:
+        # C'est l'erreur "Invalid input format! Got 'doc'..."
+        return 0, "Le format .doc (Word 97-2003) n'est pas supporté par le convertisseur installé. Veuillez convertir ce fichier en .docx ou .pdf.", "non_supporte"
     except OSError as exc:
-        return 0, f"Pandoc non disponible sur cette machine : {exc}", "non_supporte"
+        return 0, f"Pandoc non disponible : {exc}. Veuillez l'installer.", "non_supporte"
     except Exception as exc:  # noqa: BLE001
-        return 0, f"Conversion Pandoc échouée : {exc}", "non_supporte"
+        return 0, f"Erreur de conversion du fichier .doc : {exc}", "non_supporte"
 
 
 def _extract_xlsx(path: str, out_path: str) -> tuple[int, Optional[str]]:
@@ -164,5 +170,4 @@ def extract_text(extracted_file: ExtractedFile, output_dir: str) -> ExtractionRe
             return ExtractionResult(None, 0, "echec", erreur)
         return ExtractionResult(out_path, nb_chars, "succes", None)
 
-    # Ne devrait jamais arriver vu le filtre SUPPORTED_EXTENSIONS ci-dessus
     return ExtractionResult(None, 0, "non_supporte", "Type de fichier non géré.")

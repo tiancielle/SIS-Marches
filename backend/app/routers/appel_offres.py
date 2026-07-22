@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 import requests
@@ -10,6 +11,7 @@ from app.schemas.analyse_dce import AnalyseDceRead, DceDocumentRead, TraiterDceR
 from app.services.acquisition import sync_orchestrator
 from app.services.dce_processing.dce_pipeline import run_pipeline, DcePipelineError
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/appels-offres", tags=["appels-offres"])
 
 
@@ -98,6 +100,18 @@ def traiter_dce(appel_id: int, background_tasks: BackgroundTasks, db: Session = 
         bg_db = SessionLocal()
         try:
             run_pipeline(bg_db, appel_id)
+        except Exception as exc:
+            # Filet de sécurité : sans ça, une exception non anticipée (bug, config
+            # manquante, etc.) laisse AnalyseDce.statut bloqué sur "en_cours" pour
+            # toujours, et le frontend poll indéfiniment un état qui n'arrivera jamais.
+            logger.exception(f"Pipeline DCE : échec non anticipé pour AppelOffres {appel_id}")
+            analyse = bg_db.query(AnalyseDce).filter(AnalyseDce.appel_offres_id == appel_id).first()
+            if analyse is None:
+                analyse = AnalyseDce(appel_offres_id=appel_id)
+                bg_db.add(analyse)
+            analyse.statut = "echec"
+            analyse.erreur = f"Erreur interne inattendue : {exc}"
+            bg_db.commit()
         finally:
             bg_db.close()
 

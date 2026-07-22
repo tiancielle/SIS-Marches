@@ -80,4 +80,4 @@ def download_dce(client, ref_consultation: str, org_acronyme: str) -> dict:
     with open(filepath, "wb") as f:
         f.write(resp5.content)
 
-    return {"success": True, "url_cps": filepath}
+    return {"success": True, "url_cps": filepath.replace("\\", "/")}

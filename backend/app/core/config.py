@@ -49,8 +49,10 @@ class Settings(BaseSettings):
 
     # Pipeline de traitement des DCE (extraction + analyse IA)
     dce_extracted_storage_path: str = "./uploads/dce_extracted"
-    github_models_token: str = ""  # via .env : GITHUB_MODELS_TOKEN=...
-    dce_analysis_model: str = "openai/gpt-4o"  # préfixe "openai/" obligatoire sur GitHub Models
+    llm_provider: str = "gemini"  # "gemini" | "github_models"
+    gemini_api_key: str = ""  # via .env : GEMINI_API_KEY=...
+    github_models_token: str = ""  # via .env : GITHUB_MODELS_TOKEN=... (legacy, en fin de vie le 30/07/2026)
+    dce_analysis_model: str = "gemini-2.5-flash"
     dce_context_max_chars: int = 60000  # taille max du contexte texte envoyé au LLM
 
     class Config:

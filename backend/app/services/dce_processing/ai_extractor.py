@@ -1,8 +1,9 @@
-"""Un seul appel LLM par DCE, via GitHub Models (API compatible OpenAI), pour produire
-une extraction structurée en JSON strict à partir du contexte texte assemblé.
+"""Un seul appel LLM par DCE, pour produire une extraction structurée en JSON strict
+à partir du contexte texte assemblé.
 
-Endpoint à jour (l'ancien models.inference.ai.azure.com est déprécié depuis juillet 2025) :
-https://models.github.ai/inference — voir app.core.config pour le token et le modèle.
+Fournisseur par défaut : Gemini (via l'endpoint de compatibilité OpenAI de Google),
+gratuit sans carte bancaire et sans date de fin annoncée — contrairement à GitHub
+Models, dont l'arrêt définitif est prévu le 30 juillet 2026.
 """
 import json
 import re
@@ -11,6 +12,11 @@ from openai import OpenAI, RateLimitError, APIError, APIConnectionError
 
 from app.core.config import settings
 from app.models.appel_offres import AppelOffres
+
+_PROVIDER_BASE_URLS = {
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "github_models": "https://models.github.ai/inference",
+}
 
 EXPECTED_FIELDS = [
     "resume",
@@ -53,10 +59,9 @@ class DceAiRateLimitError(DceAiError):
 
 
 def _get_client() -> OpenAI:
-    return OpenAI(
-        base_url="https://models.github.ai/inference",
-        api_key=settings.github_models_token,
-    )
+    base_url = _PROVIDER_BASE_URLS.get(settings.llm_provider, _PROVIDER_BASE_URLS["gemini"])
+    api_key = settings.gemini_api_key if settings.llm_provider == "gemini" else settings.github_models_token
+    return OpenAI(base_url=base_url, api_key=api_key)
 
 
 def _build_prompt(appel: AppelOffres, context_text: str) -> str:

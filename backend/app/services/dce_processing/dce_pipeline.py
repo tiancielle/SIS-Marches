@@ -22,6 +22,7 @@ from app.models.analyse_dce import AnalyseDce
 from app.services.dce_processing import zip_extractor, document_indexer, context_builder, ai_extractor
 from app.services.dce_processing.zip_extractor import ZipExtractionError
 from app.services.dce_processing.ai_extractor import DceAiError, DceAiRateLimitError, EXPECTED_FIELDS
+from app.services.acquisition.sync_orchestrator import download_dce_for
 
 _LIST_FIELDS = {
     "competences_recherchees",
@@ -58,13 +59,24 @@ def run_pipeline(db: Session, appel_offres_id: int) -> AnalyseDce:
     appel = db.query(AppelOffres).filter(AppelOffres.id == appel_offres_id).first()
     if appel is None:
         raise DcePipelineError(f"AppelOffres {appel_offres_id} introuvable.")
-    if not appel.url_cps:
-        raise DcePipelineError("Aucun DCE téléchargé pour cet appel d'offres (url_cps vide).")
 
     analyse = _get_or_create_analyse(db, appel_offres_id)
     analyse.statut = "en_cours"
     analyse.erreur = None
     db.commit()
+
+    # 0. Téléchargement à la demande si pas encore en cache (Cas 2 du lazy loading :
+    # "Analyser avec l'IA" doit déclencher le téléchargement en transparence, sans
+    # que l'utilisateur ait besoin de passer par /telecharger-dce au préalable).
+    if not appel.url_cps:
+        download_result = download_dce_for(db, appel_offres_id)
+        if not download_result.get("success"):
+            return _mark_failed(
+                db, analyse,
+                f"Téléchargement automatique du DCE échoué : {download_result.get('reason')}",
+                nb_documents_analyses=0,
+            )
+        db.refresh(appel)  # url_cps vient d'être renseigné par download_dce_for
 
     # 1. Dézippage
     try:

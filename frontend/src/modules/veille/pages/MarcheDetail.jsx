@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import {
-  ChevronRight, Download, EyeOff, RotateCcw, Sparkles, AlertCircle,
+  ChevronRight, Download, EyeOff, RotateCcw, AlertCircle,
   Calendar, Building2, FileText, Wallet, Hash, ExternalLink, X,
 } from "lucide-react";
 import {
   fetchAppelOffre, telechargerDCE, ignorerAppelOffre, reactiverAppelOffre, resolveFileUrl,
 } from "../../../services/appelsOffres";
+import AnalyseDcePanel from "./AnalyseDcePanel";
 import Skeleton from "../../../components/ui/Skeleton";
 import { C, FONT, FONT_DISPLAY } from "../../../styles/theme";
 
@@ -191,10 +192,7 @@ export default function MarcheDetail() {
         )}
       </div>
 
-      <div style={{ background: C.paper, border: `1px dashed ${C.line}`, borderRadius: C.radius, padding: 22, marginBottom: 24, textAlign: "center" }}>
-        <Sparkles size={18} color={C.faint} style={{ marginBottom: 8 }} />
-        <p style={{ fontFamily: FONT, fontSize: 13, color: C.faint, margin: 0 }}>Analyse IA bientôt disponible.</p>
-      </div>
+      <AnalyseDcePanel appelOffresId={appel.id} urlCps={appel.url_cps} />
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         {appel.statut === "ignore" ? (

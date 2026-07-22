@@ -36,7 +36,7 @@ export default function DashboardPage() {
       <Header title="Tableau de bord" subtitle="Vue d'ensemble de votre activité" />
 
       <div style={{ padding: "24px 32px 48px", display: "flex", flexDirection: "column", gap: SECTION_GAP, background: C.paper }}>
-        <HeroSummary firstName="Rania" newCount={nouveauxCount} urgentCount={urgentCount} lastSync="il y a 4 minutes" />
+        <HeroSummary firstName="Hiba" newCount={nouveauxCount} urgentCount={urgentCount} lastSync="il y a 4 minutes" />
 
         <KpiRow marches={marches} analyses={analyses} contrats={contrats} dceList={dceList} />
 

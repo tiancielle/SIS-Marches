@@ -11,7 +11,9 @@ async function request(path, options = {}) {
 
   if (!res.ok) {
     const detail = await res.json().catch(() => null);
-    throw new Error(detail?.detail || `Erreur ${res.status} sur ${path}`);
+    const err = new Error(detail?.detail || `Erreur ${res.status} sur ${path}`);
+    err.status = res.status;
+    throw err;
   }
 
   // DELETE renvoie 204 sans corps

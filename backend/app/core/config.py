@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     # Si pandoc n'est pas détecté via PATH, indiquer ici le chemin explicite vers
     # l'exécutable (ex: "C:\\Users\\toi\\AppData\\Local\\Pandoc\\pandoc.exe")
     pandoc_path: str = ""
+    # Si LibreOffice n'est pas détecté automatiquement, indique ici le chemin exact
+    # vers soffice.exe (ex: "C:\\Users\\toi\\AppData\\Local\\Programs\\LibreOffice\\program\\soffice.exe")
+    libreoffice_path: str = ""
     llm_provider: str = "gemini"  # "gemini" | "github_models"
     gemini_api_key: str = ""  # via .env : GEMINI_API_KEY=...
     github_models_token: str = ""  # via .env : GITHUB_MODELS_TOKEN=... (legacy, en fin de vie le 30/07/2026)

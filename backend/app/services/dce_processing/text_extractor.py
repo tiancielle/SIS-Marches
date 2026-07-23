@@ -8,6 +8,8 @@ Pour les .doc (Word 97-2003), la stratégie est :
 """
 import os
 import subprocess
+import shutil
+import tempfile
 import logging
 from dataclasses import dataclass
 from typing import Optional
@@ -147,27 +149,36 @@ def _extract_doc(path: str, out_path: str) -> tuple[int, Optional[str], str]:
         base_name = os.path.splitext(filename)[0]
         # LibreOffice va créer un fichier nommé base_name.txt dans temp_dir
         temp_txt_path = os.path.join(temp_dir, f"{base_name}.txt")
-        
+
+        # Profil utilisateur isolé par conversion : LibreOffice réutilise par défaut
+        # un profil partagé, qui peut rester verrouillé entre deux appels rapprochés
+        # (ou par une session LibreOffice déjà ouverte) — cause connue et documentée
+        # de l'erreur "source file could not be loaded" en usage headless batch.
+        profile_dir = tempfile.mkdtemp(prefix="lo_profile_")
+        profile_url = "file:///" + profile_dir.replace("\\", "/").lstrip("/")
+
         cmd = [
             lo_path,
             "--headless",
+            "--norestore",
+            f"-env:UserInstallation={profile_url}",
             "--convert-to", "txt:Text (encoded):UTF8",
             "--outdir", temp_dir,
             path
         ]
-        
+
         try:
             logger.debug(f"[DIAG] Exécution commande LO : {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-            
+
             if result.returncode == 0 and os.path.exists(temp_txt_path):
                 # On déplace/renomme le fichier généré vers le out_path final attendu par le pipeline
                 if temp_txt_path != out_path:
                     os.replace(temp_txt_path, out_path)
-                
+
                 with open(out_path, "r", encoding="utf-8") as f:
                     text = f.read()
-                
+
                 logger.info(f"[DIAG] SUCCÈS LibreOffice : {len(text)} caractères extraits de {filename}.")
                 return len(text), None, "succes"
             else:
@@ -176,6 +187,8 @@ def _extract_doc(path: str, out_path: str) -> tuple[int, Optional[str], str]:
             logger.warning(f"[DIAG] Timeout (120s) lors de la conversion LibreOffice pour {filename}.")
         except Exception as e:
             logger.warning(f"[DIAG] Exception lors de l'exécution LibreOffice pour {filename} : {e}")
+        finally:
+            shutil.rmtree(profile_dir, ignore_errors=True)
 
     # --- ÉTAPE 2 : Pandoc (Solution de repli) ---
     logger.info(f"[DIAG] LibreOffice a échoué ou est absent. Tentative de repli via Pandoc pour : {filename}")

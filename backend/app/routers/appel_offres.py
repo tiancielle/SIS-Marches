@@ -170,8 +170,10 @@ def interesser(appel_id: int, data: InteresserRequest, db: Session = Depends(get
 
 
 @router.post("/{appel_id}/traiter-dce", response_model=TraiterDceResult)
-def traiter_dce(appel_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    """Déclenche le pipeline de traitement du DCE (extraction + analyse IA) en arrière-plan."""
+def traiter_dce(appel_id: int, background_tasks: BackgroundTasks, force: bool = False, db: Session = Depends(get_db)):
+    """Déclenche le pipeline de traitement du DCE (extraction + analyse IA) en arrière-plan.
+    Si une analyse complète existe déjà, elle est réutilisée telle quelle (pas de
+    nouvel appel LLM) sauf si force=true est passé en query param."""
     appel = db.query(AppelOffres).filter(AppelOffres.id == appel_id).first()
     if not appel:
         raise HTTPException(status_code=404, detail="Appel d'offres introuvable")
@@ -181,7 +183,7 @@ def traiter_dce(appel_id: int, background_tasks: BackgroundTasks, db: Session = 
     def _run_pipeline_background():
         bg_db = SessionLocal()
         try:
-            run_pipeline(bg_db, appel_id)
+            run_pipeline(bg_db, appel_id, force=force)
         except Exception as exc:
             # Filet de sécurité pour éviter de bloquer le statut sur "en_cours"
             logger.exception(f"Pipeline DCE : échec non anticipé pour AppelOffres {appel_id}")

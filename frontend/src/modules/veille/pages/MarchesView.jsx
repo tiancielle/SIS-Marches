@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Search, RefreshCw, Download, EyeOff, RotateCcw, Sparkles,
+  Search, RefreshCw, Download, EyeOff, RotateCcw,
   Calendar, Building2, FileText, AlertCircle, CheckCircle2, Inbox, ChevronDown, X,
 } from "lucide-react";
 import {
@@ -38,6 +38,22 @@ function isoDate(d) {
   return d.toISOString().slice(0, 10);
 }
 
+// Classement automatique — une seule règle possible par AO, jamais de doublon entre onglets.
+function categorize(a) {
+  if (a.statut === "interesse") return "interesse";
+  const jours = joursRestants(a.date_limite_remise);
+  if (jours !== null && jours < 0) return "expire";
+  if (a.statut === "ignore") return "ignore";
+  return "a_traiter";
+}
+
+const TABS = [
+  { key: "a_traiter", label: "À traiter" },
+  { key: "interesse", label: "Intéressés" },
+  { key: "ignore", label: "Ignorés" },
+  { key: "expire", label: "Expirés" },
+];
+
 export default function MarchesView() {
   const navigate = useNavigate();
   const [appels, setAppels] = useState([]);
@@ -52,7 +68,7 @@ export default function MarchesView() {
   const [downloadErrors, setDownloadErrors] = useState({});
 
   const [search, setSearch] = useState("");
-  const [statutFilter, setStatutFilter] = useState("tous");
+  const [activeTab, setActiveTab] = useState("a_traiter");
   const [procedureFilter, setProcedureFilter] = useState("tous");
   const [organismeFilter, setOrganismeFilter] = useState("tous");
   const [dateFrom, setDateFrom] = useState("");
@@ -140,7 +156,7 @@ export default function MarchesView() {
 
   const filtered = useMemo(() => {
     return appels
-      .filter((a) => statutFilter === "tous" || a.statut === statutFilter)
+      .filter((a) => categorize(a) === activeTab)
       .filter((a) => procedureFilter === "tous" || a.type_procedure === procedureFilter)
       .filter((a) => organismeFilter === "tous" || a.organisme === organismeFilter)
       .filter((a) => {
@@ -165,11 +181,11 @@ export default function MarchesView() {
         if (!b.date_limite_remise) return -1;
         return new Date(a.date_limite_remise) - new Date(b.date_limite_remise);
       });
-  }, [appels, statutFilter, procedureFilter, organismeFilter, dateFrom, dateTo, search]);
+  }, [appels, activeTab, procedureFilter, organismeFilter, dateFrom, dateTo, search]);
 
-  const kpis = useMemo(() => {
-    const c = { nouveau: 0, analyse: 0, interesse: 0, ignore: 0 };
-    appels.forEach((a) => { c[a.statut] = (c[a.statut] || 0) + 1; });
+  const tabCounts = useMemo(() => {
+    const c = { a_traiter: 0, interesse: 0, ignore: 0, expire: 0 };
+    appels.forEach((a) => { c[categorize(a)]++; });
     return c;
   }, [appels]);
 
@@ -215,19 +231,22 @@ export default function MarchesView() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 22 }}>
-        {[
-          { label: "Nouveaux", value: kpis.nouveau },
-          { label: "Analysés", value: kpis.analyse },
-          { label: "Retenus", value: kpis.interesse },
-          { label: "Ignorés", value: kpis.ignore },
-        ].map((k) => (
-          <div key={k.label} style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: C.radius, padding: "14px 16px" }}>
-            <p style={{ fontFamily: FONT, fontSize: 11.5, color: C.faint, margin: "0 0 6px", textTransform: "uppercase", letterSpacing: 0.4 }}>{k.label}</p>
-            {loading ? <Skeleton width={36} height={22} /> : (
-              <p style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 600, color: C.ink, margin: 0 }}>{k.value}</p>
-            )}
-          </div>
+      <div style={{ display: "flex", gap: 2, borderBottom: `1px solid ${C.line}`, marginBottom: 22, flexWrap: "wrap" }}>
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            style={{
+              fontFamily: FONT, fontSize: 13.5, fontWeight: activeTab === t.key ? 600 : 500,
+              color: activeTab === t.key ? C.accent : C.mute,
+              background: "none", border: "none", cursor: "pointer",
+              padding: "10px 6px", marginRight: 20,
+              borderBottom: activeTab === t.key ? `2px solid ${C.accent}` : "2px solid transparent",
+              marginBottom: -1,
+            }}
+          >
+            {t.label} <span style={{ color: C.faint, fontWeight: 500 }}>({tabCounts[t.key]})</span>
+          </button>
         ))}
       </div>
 
@@ -245,8 +264,6 @@ export default function MarchesView() {
           />
         </div>
 
-        <FilterPill label="Statut" value={statutFilter} onChange={setStatutFilter}
-          options={[["tous", "Tous"], ...Object.entries(STATUT_LABELS)]} />
         <FilterPill label="Procédure" value={procedureFilter} onChange={setProcedureFilter}
           options={[["tous", "Toutes"], ...procedures.map((p) => [p, p])]} />
         <FilterPill label="Organisme" value={organismeFilter} onChange={setOrganismeFilter}
@@ -288,7 +305,7 @@ export default function MarchesView() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 14 }}>
           {filtered.map((a) => {
             const jours = joursRestants(a.date_limite_remise);
-            const urgent = jours !== null && jours <= 5 && jours >= 0;
+            const urgent = jours !== null && jours <= 5;
             const st = STATUT_COLORS[a.statut] || STATUT_COLORS.nouveau;
             const isDownloading = downloadingIds.has(a.id);
 
@@ -320,13 +337,11 @@ export default function MarchesView() {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontFamily: FONT, fontSize: 12.5, color: urgent ? C.danger : C.mute, fontWeight: urgent ? 600 : 400 }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <Calendar size={13} /> {fmtDate(a.date_limite_remise)}{jours !== null && jours >= 0 ? ` (J-${jours})` : ""}
+                    <Calendar size={13} /> {fmtDate(a.date_limite_remise)}
+                    {jours !== null && jours >= 0 ? ` (J-${jours})` : ""}
+                    {jours !== null && jours < 0 ? " — Expiré" : ""}
                   </span>
                   <span style={{ fontSize: 11.5, color: C.faint }}>{a.type_procedure || "—"}</span>
-                </div>
-
-                <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT, fontSize: 11.5, color: C.faint, background: C.paper, borderRadius: 8, padding: "7px 10px" }}>
-                  <Sparkles size={13} /> Analyse IA bientôt disponible
                 </div>
 
                 {downloadErrors[a.id] && (

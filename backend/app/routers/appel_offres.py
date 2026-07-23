@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -8,8 +9,11 @@ from app.core.database import get_db, SessionLocal
 from app.models.appel_offres import AppelOffres
 from app.models.analyse_dce import AnalyseDce
 from app.models.dce_document import DceDocument
+from app.models.projet import Projet
+from app.models.equipe import Equipe
 from app.schemas.appel_offres import AppelOffresRead, SyncResult, DceDownloadResult
 from app.schemas.analyse_dce import AnalyseDceRead, DceDocumentRead, TraiterDceResult
+from app.schemas.projet import ProjetRead, InteresserRequest
 from app.services.acquisition import sync_orchestrator
 from app.services.dce_processing.dce_pipeline import run_pipeline, DcePipelineError
 
@@ -89,6 +93,78 @@ def reactiver(appel_id: int, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(appel)
     return appel
+
+
+def _parse_budget_texte(budget_texte: str) -> float | None:
+    """Le budget de l'AnalyseDce est un texte libre (ex: '1 200 000 MAD', '1.2M MAD').
+    Tentative d'extraction simple d'un nombre ; renvoie None si rien d'exploitable
+    plutôt que de planter — ce champ reste de toute façon éditable manuellement
+    ensuite dans le Projet."""
+    digits = re.sub(r"[^\d.]", "", budget_texte.replace(",", ""))
+    try:
+        return float(digits) if digits else None
+    except ValueError:
+        return None
+
+
+@router.post("/{appel_id}/interesser", response_model=ProjetRead, status_code=201)
+def interesser(appel_id: int, data: InteresserRequest, db: Session = Depends(get_db)):
+    """Action "Je suis intéressé" : convertit un AppelOffres en Projet.
+
+    Préremplit le Projet depuis l'AppelOffres (objet/organisme/référence/montant/
+    date limite/type de procédure) et depuis l'AnalyseDce associée si elle existe
+    (budget en repli, résumé en description). Passe l'AppelOffres à statut='interesse'.
+    """
+    appel = db.query(AppelOffres).filter(AppelOffres.id == appel_id).first()
+    if not appel:
+        raise HTTPException(status_code=404, detail="Appel d'offres introuvable")
+
+    if appel.statut in ("interesse", "ignore"):
+        raise HTTPException(status_code=409, detail=f"Cet appel d'offres est déjà '{appel.statut}'.")
+
+    # Contrainte 1:1 : un AppelOffres ne peut donner naissance qu'à un seul Projet
+    if db.query(Projet).filter(Projet.appel_offres_id == appel_id).first():
+        raise HTTPException(status_code=409, detail="Un Projet existe déjà pour cet appel d'offres.")
+
+    chef = db.query(Equipe).filter(Equipe.id == data.chef_projet_id).first()
+    if not chef:
+        raise HTTPException(status_code=404, detail="chef_projet_id ne correspond à aucun membre de l'équipe")
+
+    analyse = db.query(AnalyseDce).filter(AnalyseDce.appel_offres_id == appel_id).first()
+
+    nom = data.nom_projet or (appel.objet[:200] if appel.objet else f"Projet — {appel.reference}")
+
+    budget = appel.montant_estimatif
+    if budget is None and analyse and analyse.budget:
+        budget = _parse_budget_texte(analyse.budget)
+
+    description_parts = [appel.objet or ""]
+    if analyse and analyse.resume:
+        description_parts.append(f"\n\nRésumé IA (DCE) :\n{analyse.resume}")
+    if appel.type_procedure:
+        description_parts.append(f"\n\nType de procédure : {appel.type_procedure}")
+
+    projet = Projet(
+        appel_offres_id=appel.id,
+        origine="appel_offres",
+        nom=nom,
+        client=appel.organisme,
+        description="".join(description_parts).strip() or None,
+        budget=budget,
+        budget_engage=0,
+        debut=data.date_debut_prevue,
+        fin=None,  # date_limite_remise est une échéance de dépôt de pli, pas une fin de projet — non réutilisée ici
+        chef=chef.nom,
+        chef_id=chef.id,
+        statut="interesse",
+    )
+    db.add(projet)
+
+    appel.statut = "interesse"
+
+    db.commit()
+    db.refresh(projet)
+    return projet
 
 
 @router.post("/{appel_id}/traiter-dce", response_model=TraiterDceResult)

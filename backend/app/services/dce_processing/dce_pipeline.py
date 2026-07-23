@@ -55,10 +55,16 @@ def _mark_failed(db: Session, analyse: AnalyseDce, message: str, nb_documents_an
     return analyse
 
 
-def run_pipeline(db: Session, appel_offres_id: int) -> AnalyseDce:
+def run_pipeline(db: Session, appel_offres_id: int, force: bool = False) -> AnalyseDce:
     appel = db.query(AppelOffres).filter(AppelOffres.id == appel_offres_id).first()
     if appel is None:
         raise DcePipelineError(f"AppelOffres {appel_offres_id} introuvable.")
+
+    # Cache : une analyse déjà complète n'est jamais relancée (donc jamais un nouvel
+    # appel LLM) sauf demande explicite via force=True (point 3 de l'audit).
+    existing = db.query(AnalyseDce).filter(AnalyseDce.appel_offres_id == appel_offres_id).first()
+    if existing is not None and existing.statut == "complete" and not force:
+        return existing
 
     analyse = _get_or_create_analyse(db, appel_offres_id)
     analyse.statut = "en_cours"

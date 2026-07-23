@@ -126,9 +126,11 @@ def interesser(appel_id: int, data: InteresserRequest, db: Session = Depends(get
     if db.query(Projet).filter(Projet.appel_offres_id == appel_id).first():
         raise HTTPException(status_code=409, detail="Un Projet existe déjà pour cet appel d'offres.")
 
-    chef = db.query(Equipe).filter(Equipe.id == data.chef_projet_id).first()
-    if not chef:
-        raise HTTPException(status_code=404, detail="chef_projet_id ne correspond à aucun membre de l'équipe")
+    chef = None
+    if data.chef_projet_id is not None:
+        chef = db.query(Equipe).filter(Equipe.id == data.chef_projet_id).first()
+        if not chef:
+            raise HTTPException(status_code=404, detail="chef_projet_id ne correspond à aucun membre de l'équipe")
 
     analyse = db.query(AnalyseDce).filter(AnalyseDce.appel_offres_id == appel_id).first()
 
@@ -154,8 +156,8 @@ def interesser(appel_id: int, data: InteresserRequest, db: Session = Depends(get
         budget_engage=0,
         debut=data.date_debut_prevue,
         fin=None,  # date_limite_remise est une échéance de dépôt de pli, pas une fin de projet — non réutilisée ici
-        chef=chef.nom,
-        chef_id=chef.id,
+        chef=chef.nom if chef else None,
+        chef_id=chef.id if chef else None,
         statut="interesse",
     )
     db.add(projet)

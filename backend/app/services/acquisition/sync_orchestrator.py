@@ -27,7 +27,7 @@ from .list_fetcher import fetch_search_form, submit_search
 from .list_parser import parse_list_page
 from .search_criteria import build_search_criteria
 from .pagination import iter_all_pages
-from .detail_navigator import open_detail
+from .detail_navigator import open_detail, build_detail_url
 from .dce_downloader import download_dce
 from .ai_analysis_stub import analyser_appel_offres
 from .normalizer import extract_form_fields
@@ -143,6 +143,7 @@ def _run_locked(db: DbSession) -> dict:
                         date_limite_remise=row["date_limite_remise"],
                         ref_consultation=row["ref_consultation"],
                         org_acronyme=row["org_acronyme"],
+                        url_avis=build_detail_url(row["ref_consultation"], row["org_acronyme"]),
                         statut="nouveau",
                     )
                     db.add(appel)

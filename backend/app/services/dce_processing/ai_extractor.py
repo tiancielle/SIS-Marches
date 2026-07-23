@@ -20,31 +20,45 @@ _PROVIDER_BASE_URLS = {
 
 EXPECTED_FIELDS = [
     "resume",
+    "objet_marche",
+    "prestations_attendues",
     "competences_recherchees",
     "technologies_mentionnees",
     "pieces_administratives",
+    "livrables_attendus",
+    "contraintes_importantes",
     "criteres_evaluation",
     "delais_importants",
+    "points_vigilance",
+    "recommandations",
     "budget",
 ]
 
 _SYSTEM_PROMPT = (
-    "Tu es un assistant qui extrait des informations structurées de dossiers de "
-    "consultation de marchés publics marocains (DCE). Réponds UNIQUEMENT avec un "
-    "objet JSON valide, sans texte avant ou après, sans balises markdown. Si une "
-    "information n'est pas présente dans le texte fourni, utilise une liste vide "
-    "([]) ou null selon le type attendu — n'invente jamais de valeur."
+    "Tu es un consultant senior en bureau d'études qui analyse des dossiers de "
+    "consultation de marchés publics marocains (DCE) pour évaluer leur pertinence "
+    "et préparer une candidature. Réponds UNIQUEMENT avec un objet JSON valide, "
+    "sans texte avant ou après, sans balises markdown. Si une information n'est "
+    "pas présente dans le texte fourni, utilise une liste vide ([]) ou null selon "
+    "le type attendu — n'invente jamais de valeur, ne suppose jamais un contenu "
+    "qui ne serait pas explicitement dans le texte fourni."
 )
 
 _JSON_SCHEMA_INSTRUCTIONS = """
 Structure JSON attendue, exactement ces clés :
 {
-  "resume": "résumé clair de l'objet du marché en 3-5 phrases",
+  "resume": "résumé exécutif clair et synthétique en 3-5 phrases, à destination d'un décideur pressé",
+  "objet_marche": "reformulation claire et précise de l'objet du marché, une à deux phrases",
+  "prestations_attendues": ["liste des prestations/missions concrètes attendues du prestataire"],
   "competences_recherchees": ["liste de compétences/profils recherchés"],
   "technologies_mentionnees": ["liste de technologies, normes, logiciels mentionnés"],
-  "pieces_administratives": ["liste des pièces administratives demandées au soumissionnaire"],
+  "pieces_administratives": ["liste des pièces administratives demandées au soumissionnaire pour candidater (acte d'engagement, RC, CPS signé, attestations fiscale/CNSS, certificats de qualification, etc.)"],
+  "livrables_attendus": ["liste des livrables concrets attendus en cours/fin de mission (rapports, plans, études, formations...)"],
+  "contraintes_importantes": ["liste des contraintes notables : délais d'exécution, pénalités, exigences de qualification/références, garanties, cautionnement, lieu d'exécution..."],
   "criteres_evaluation": ["liste des critères d'évaluation des offres, ex: technique 60% / prix 40%"],
   "delais_importants": [{"libelle": "date limite de remise des plis", "date": "JJ/MM/AAAA ou texte tel que trouvé"}],
+  "points_vigilance": ["liste des points de vigilance ou risques identifiés pour un candidat (ambiguïtés du CPS, exigences difficiles à satisfaire, délais courts, concurrence attendue, clauses défavorables...)"],
+  "recommandations": ["liste de recommandations concrètes pour SIS Consultants : candidater ou non, points à clarifier avant de candidater, partenariats/sous-traitance à envisager..."],
   "budget": "budget/montant estimatif si mentionné, sous forme de texte, sinon null"
 }
 """

@@ -5,13 +5,53 @@ plafond de pages/taille) — la troncature n'intervient que plus tard, au niveau
 contexte envoyé au LLM (voir context_builder.py). Pour rester raisonnable en mémoire
 sur les gros PDF, l'écriture du texte extrait se fait de façon incrémentale.
 """
+import logging
 import os
+import shutil
+import subprocess
+import tempfile
 from dataclasses import dataclass
 from typing import Optional
 
+from app.core.config import settings
 from app.services.dce_processing.zip_extractor import ExtractedFile
 
+logger = logging.getLogger(__name__)
+
 SUPPORTED_EXTENSIONS = {"pdf", "docx", "doc", "xlsx"}
+
+
+def _check_pandoc() -> None:
+    """Diagnostic explicite au démarrage : confirme si Python détecte bien Pandoc
+    (via PATH, ou via pandoc_path si configuré), et log clairement le résultat —
+    plutôt que de laisser échouer silencieusement à la première extraction .doc."""
+    if settings.pandoc_path:
+        os.environ["PYPANDOC_PANDOC"] = settings.pandoc_path
+    try:
+        import pypandoc
+        version = pypandoc.get_pandoc_version()
+        path = pypandoc.get_pandoc_path()
+        logger.info(f"Pandoc détecté : version {version}, chemin '{path}'.")
+    except OSError as exc:
+        logger.warning(
+            f"Pandoc non détecté par pypandoc ({exc}). Si Pandoc est installé mais "
+            f"introuvable via PATH (fréquent sur Windows si le terminal n'a pas été "
+            f"rouvert après l'installation), renseigne son chemin exact dans "
+            f"PANDOC_PATH (.env) ou le paramètre pandoc_path. Note : même bien "
+            f"détecté, Pandoc ne sait de toute façon pas lire nativement le binaire "
+            f".doc (Word 97-2003) sans repli — voir _extract_doc."
+        )
+
+
+_check_pandoc()
+
+
+def _find_libreoffice() -> Optional[str]:
+    for name in ("soffice", "libreoffice"):
+        path = shutil.which(name)
+        if path:
+            return path
+    return None
 
 
 @dataclass
@@ -87,27 +127,70 @@ def _extract_docx(path: str, out_path: str) -> tuple[int, Optional[str]]:
         return 0, str(exc)
 
 
+def _convert_via_libreoffice(path: str) -> tuple[str, Optional[str]]:
+    """Repli robuste pour le vrai binaire .doc Word 97-2003, que Pandoc ne sait pas
+    lire nativement (confirmé : 'doc' n'apparaît pas dans la liste des formats
+    d'entrée supportés par Pandoc). LibreOffice headless gère ce format correctement."""
+    soffice = _find_libreoffice()
+    if not soffice:
+        return "", (
+            "LibreOffice (soffice) introuvable sur cette machine. Installe LibreOffice "
+            "pour permettre la conversion des .doc legacy, ou convertis ce fichier "
+            "manuellement en .docx/.pdf."
+        )
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        try:
+            subprocess.run(
+                [soffice, "--headless", "--convert-to", "txt:Text", "--outdir", tmp_dir, path],
+                timeout=60, capture_output=True, check=True,
+            )
+        except subprocess.TimeoutExpired:
+            return "", "Conversion LibreOffice trop longue (timeout 60s)."
+        except subprocess.CalledProcessError as exc:
+            detail = exc.stderr.decode(errors="replace") if exc.stderr else str(exc)
+            return "", f"Conversion LibreOffice échouée : {detail}"
+
+        base_name = os.path.splitext(os.path.basename(path))[0]
+        txt_path = os.path.join(tmp_dir, base_name + ".txt")
+        if not os.path.isfile(txt_path):
+            return "", "LibreOffice n'a produit aucun fichier texte en sortie pour ce document."
+        with open(txt_path, "r", encoding="utf-8", errors="replace") as handle:
+            return handle.read(), None
+
+
 def _extract_doc(path: str, out_path: str) -> tuple[int, Optional[str], str]:
-    """
-    Ancien format binaire .doc (Word 97-2003).
-    Pandoc sur Windows ne supporte souvent pas la lecture native du .doc sans 
-    outils externes (comme antiword). On gère l'échec proprement pour ne pas 
-    bloquer tout le pipeline.
+    """Ancien format binaire .doc (Word 97-2003).
+
+    Pandoc ne sait PAS lire nativement ce format (vérifié : 'doc' est absent de
+    la liste des formats d'entrée qu'il annonce lui-même supporter) — ce n'est
+    donc pas (seulement) une question de détection/PATH. On tente quand même
+    Pandoc en premier (gratuit, rapide, fonctionne sur de rares .doc au format
+    RTF déguisé), puis on bascule sur LibreOffice headless, qui gère
+    correctement le binaire legacy.
     """
     try:
         import pypandoc
-        # On force explicitement le format d'entrée 'doc'
         text = pypandoc.convert_file(path, "plain", format="doc")
-        with open(out_path, "w", encoding="utf-8") as out:
-            out.write(text)
-        return len(text), None, "succes"
-    except RuntimeError as exc:
-        # C'est l'erreur "Invalid input format! Got 'doc'..."
-        return 0, "Le format .doc (Word 97-2003) n'est pas supporté par le convertisseur installé. Veuillez convertir ce fichier en .docx ou .pdf.", "non_supporte"
+        if text.strip():
+            with open(out_path, "w", encoding="utf-8") as out:
+                out.write(text)
+            return len(text), None, "succes"
     except OSError as exc:
-        return 0, f"Pandoc non disponible : {exc}. Veuillez l'installer.", "non_supporte"
+        logger.warning(f"Pandoc indisponible pour la conversion .doc ({exc}) — repli LibreOffice.")
+    except RuntimeError:
+        pass  # "Invalid input format" attendu pour un vrai binaire .doc — on tente le repli
     except Exception as exc:  # noqa: BLE001
-        return 0, f"Erreur de conversion du fichier .doc : {exc}", "non_supporte"
+        logger.warning(f"Échec Pandoc inattendu sur .doc ({exc}) — repli LibreOffice.")
+
+    text, erreur = _convert_via_libreoffice(path)
+    if erreur:
+        return 0, f"Pandoc n'a pas pu lire ce .doc, et le repli LibreOffice a échoué : {erreur}", "non_supporte"
+    if not text.strip():
+        return 0, "Aucun texte extrait de ce .doc via LibreOffice (document peut-être vide ou scanné).", "non_supporte"
+
+    with open(out_path, "w", encoding="utf-8") as out:
+        out.write(text)
+    return len(text), None, "succes"
 
 
 def _extract_xlsx(path: str, out_path: str) -> tuple[int, Optional[str]]:

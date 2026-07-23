@@ -25,11 +25,16 @@ from app.services.dce_processing.ai_extractor import DceAiError, DceAiRateLimitE
 from app.services.acquisition.sync_orchestrator import download_dce_for
 
 _LIST_FIELDS = {
+    "prestations_attendues",
     "competences_recherchees",
     "technologies_mentionnees",
     "pieces_administratives",
+    "livrables_attendus",
+    "contraintes_importantes",
     "criteres_evaluation",
     "delais_importants",
+    "points_vigilance",
+    "recommandations",
 }
 
 
@@ -122,6 +127,7 @@ def run_pipeline(db: Session, appel_offres_id: int, force: bool = False) -> Anal
 
     # 5. Persistance du résultat structuré
     analyse.resume = result.get("resume") or None
+    analyse.objet_marche = result.get("objet_marche") or None
     for field in _LIST_FIELDS:
         value = result.get(field)
         analyse.__setattr__(field, json.dumps(value if isinstance(value, list) else [], ensure_ascii=False))

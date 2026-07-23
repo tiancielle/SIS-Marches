@@ -14,12 +14,18 @@ class AnalyseDce(Base):
     id = Column(Integer, primary_key=True, index=True)
     appel_offres_id = Column(Integer, ForeignKey("appel_offres.id"), unique=True, nullable=False, index=True)
 
-    resume = Column(Text, nullable=True)
+    resume = Column(Text, nullable=True)                     # résumé exécutif
+    objet_marche = Column(Text, nullable=True)                # objet du marché reformulé clairement
+    prestations_attendues = Column(Text, nullable=True)       # JSON string (liste de str)
     competences_recherchees = Column(Text, nullable=True)    # JSON string (liste de str)
     technologies_mentionnees = Column(Text, nullable=True)   # JSON string (liste de str)
-    pieces_administratives = Column(Text, nullable=True)     # JSON string (liste de str)
+    pieces_administratives = Column(Text, nullable=True)     # JSON string (liste de str) — AE, RC, CPS, attestations...
+    livrables_attendus = Column(Text, nullable=True)          # JSON string (liste de str)
+    contraintes_importantes = Column(Text, nullable=True)     # JSON string (liste de str)
     criteres_evaluation = Column(Text, nullable=True)        # JSON string (liste de str)
     delais_importants = Column(Text, nullable=True)          # JSON string (liste de {libelle, date})
+    points_vigilance = Column(Text, nullable=True)            # JSON string (liste de str) — risques identifiés
+    recommandations = Column(Text, nullable=True)              # JSON string (liste de str) — pour SIS
     budget = Column(String, nullable=True)                   # texte libre : souvent descriptif ou fourchette
 
     # en_attente | en_cours | complete | partielle | echec

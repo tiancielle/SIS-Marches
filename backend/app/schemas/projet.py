@@ -36,5 +36,5 @@ class ProjetRead(ProjetBase):
 
 class InteresserRequest(BaseModel):
     nom_projet: Optional[str] = None
-    chef_projet_id: int
+    chef_projet_id: Optional[int] = None
     date_debut_prevue: Optional[date] = None

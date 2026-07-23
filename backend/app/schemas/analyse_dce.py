@@ -28,11 +28,17 @@ class AnalyseDceRead(BaseModel):
     id: int
     appel_offres_id: int
     resume: Optional[str] = None
+    objet_marche: Optional[str] = None
+    prestations_attendues: list[str] = []
     competences_recherchees: list[str] = []
     technologies_mentionnees: list[str] = []
     pieces_administratives: list[str] = []
+    livrables_attendus: list[str] = []
+    contraintes_importantes: list[str] = []
     criteres_evaluation: list[str] = []
     delais_importants: list[DelaiImportant] = []
+    points_vigilance: list[str] = []
+    recommandations: list[str] = []
     budget: Optional[str] = None
     statut: str
     erreur: Optional[str] = None
@@ -62,11 +68,17 @@ class AnalyseDceRead(BaseModel):
             id=analyse.id,
             appel_offres_id=analyse.appel_offres_id,
             resume=analyse.resume,
+            objet_marche=analyse.objet_marche,
+            prestations_attendues=cls._safe_json_list(analyse.prestations_attendues),
             competences_recherchees=cls._safe_json_list(analyse.competences_recherchees),
             technologies_mentionnees=cls._safe_json_list(analyse.technologies_mentionnees),
             pieces_administratives=cls._safe_json_list(analyse.pieces_administratives),
+            livrables_attendus=cls._safe_json_list(analyse.livrables_attendus),
+            contraintes_importantes=cls._safe_json_list(analyse.contraintes_importantes),
             criteres_evaluation=cls._safe_json_list(analyse.criteres_evaluation),
             delais_importants=cls._safe_json_list(analyse.delais_importants),
+            points_vigilance=cls._safe_json_list(analyse.points_vigilance),
+            recommandations=cls._safe_json_list(analyse.recommandations),
             budget=analyse.budget,
             statut=analyse.statut,
             erreur=analyse.erreur,

@@ -49,6 +49,9 @@ class Settings(BaseSettings):
 
     # Pipeline de traitement des DCE (extraction + analyse IA)
     dce_extracted_storage_path: str = "./uploads/dce_extracted"
+    # Si pandoc n'est pas détecté via PATH, indiquer ici le chemin explicite vers
+    # l'exécutable (ex: "C:\\Users\\toi\\AppData\\Local\\Pandoc\\pandoc.exe")
+    pandoc_path: str = ""
     llm_provider: str = "gemini"  # "gemini" | "github_models"
     gemini_api_key: str = ""  # via .env : GEMINI_API_KEY=...
     github_models_token: str = ""  # via .env : GITHUB_MODELS_TOKEN=... (legacy, en fin de vie le 30/07/2026)

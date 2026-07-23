@@ -8,3 +8,9 @@ requests
 beautifulsoup4
 lxml
 apscheduler
+openai
+pdfplumber
+pypdf
+python-docx
+openpyxl
+pypandoc

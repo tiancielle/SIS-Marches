@@ -229,7 +229,7 @@ export default function AnalyseDcePanel({ appelOffresId, urlCps }) {
           </button>
           {!urlCps && (
             <p style={{ fontFamily: FONT, fontSize: 12.5, color: C.danger, margin: "12px 0 0" }}>
-              ⚠️ Veuillez d'abord télécharger le dossier de consultation ci-dessus.
+               Veuillez d'abord télécharger le dossier de consultation ci-dessus.
             </p>
           )}
         </div>

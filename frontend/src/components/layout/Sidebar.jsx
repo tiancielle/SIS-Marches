@@ -22,7 +22,6 @@ const GROUPS = [
     icon: FolderKanban,
     items: [
       { to: "/projects", label: "Tous les projets" },
-      { label: "DCE", disabled: true },
       { to: "/contrats", label: "Contrats" },
     ],
   },

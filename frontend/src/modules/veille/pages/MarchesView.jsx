@@ -10,6 +10,7 @@ import {
 } from "../../../services/appelsOffres";
 import ConfirmModal from "../../../components/ui/ConfirmModal";
 import Skeleton from "../../../components/ui/Skeleton";
+import InteresseModal from "./InteresseModal";
 import { C, FONT, FONT_DISPLAY } from "../../../styles/theme";
 
 const STATUT_LABELS = {
@@ -58,13 +59,7 @@ export default function MarchesView() {
   const [dateTo, setDateTo] = useState("");
 
   const [confirmIgnorerId, setConfirmIgnorerId] = useState(null);
-
-  const [toast, setToast] = useState(null);
-  function showSoonToast() {
-    setToast("Bientôt disponible — la conversion en Projet n'est pas encore branchée côté backend.");
-    clearTimeout(showSoonToast._t);
-    showSoonToast._t = setTimeout(() => setToast(null), 3200);
-  }
+  const [interesseAppel, setInteresseAppel] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -352,7 +347,7 @@ export default function MarchesView() {
                   ) : (
                     <CardAction icon={EyeOff} label="Ignorer" onClick={() => setConfirmIgnorerId(a.id)} />
                   )}
-                  <CardAction primary label="Je suis intéressé" onClick={showSoonToast} />
+                  <CardAction primary label="Je suis intéressé" onClick={() => setInteresseAppel(a)} />
                 </div>
               </div>
             );
@@ -370,19 +365,12 @@ export default function MarchesView() {
         />
       )}
 
-      {toast && (
-        <div style={{
-          position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
-          background: C.sidebarBg, color: "#fff", fontFamily: FONT, fontSize: 13, fontWeight: 500,
-          padding: "12px 18px", borderRadius: C.radius, boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
-          display: "flex", alignItems: "center", gap: 10, zIndex: 100, maxWidth: 420,
-        }}>
-          <Sparkles size={15} color={C.accentLt} style={{ flexShrink: 0 }} />
-          {toast}
-          <button onClick={() => setToast(null)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.5)", cursor: "pointer", display: "flex", padding: 2, flexShrink: 0 }}>
-            <X size={14} />
-          </button>
-        </div>
+      {interesseAppel && (
+        <InteresseModal
+          appel={interesseAppel}
+          onClose={() => setInteresseAppel(null)}
+          onSuccess={(projet) => navigate(`/projects/${projet.id}`)}
+        />
       )}
     </div>
   );

@@ -28,6 +28,7 @@ export default function ProjectsView() {
   const chefs = useMemo(() => [...new Set(projects.map((p) => p.chef))].sort(), [projects]);
   const actifs = useMemo(() => projects.filter((p) => p.statut === "actif"), [projects]);
   const countActif = actifs.length;
+  const countInteresse = projects.filter((p) => p.statut === "interesse").length;
   const countTermine = projects.filter((p) => p.statut === "termine").length;
 
   // KPI dérivés du même state que la liste — aucune nouvelle donnée, juste une vue résumée
@@ -39,6 +40,7 @@ export default function ProjectsView() {
   const echeancesProches = actifs.filter((p) => p.fin && new Date(p.fin) >= now && new Date(p.fin) <= in30Days).length;
 
   const TABS = [
+    { key: "interesse", label: "Nouveaux", count: countInteresse },
     { key: "actif", label: "Actifs", count: countActif },
     { key: "termine", label: "Historique", count: countTermine },
   ];

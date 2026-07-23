@@ -12,6 +12,7 @@ import ProjectSubsTab from "./tabs/ProjectSubsTab";
 import ProjectDCETab from "./tabs/ProjectDCETab";
 import ProjectEquipeTab from "./tabs/ProjectEquipeTab";
 import ProjectDocsTab from "./tabs/ProjectDocsTab";
+import ProjectCandidatureTab from "./tabs/ProjectCandidatureTab";
 import ProjectHistoryTab from "./tabs/ProjectHistoryTab";
 
 const TABS = [
@@ -20,6 +21,7 @@ const TABS = [
   { key: "dce", label: "DCE" },
   { key: "equipe", label: "Équipe" },
   { key: "docs", label: "Documents" },
+  { key: "candidature", label: "Dossier de candidature" },
   { key: "historique", label: "Historique" },
 ];
 
@@ -125,6 +127,7 @@ export default function ProjectDetail() {
             {tab === "dce" && <ProjectDCETab projectId={project.id} />}
             {tab === "equipe" && <ProjectEquipeTab projectId={project.id} />}
             {tab === "docs" && <ProjectDocsTab projectId={project.id} />}
+            {tab === "candidature" && <ProjectCandidatureTab project={project} />}
             {tab === "historique" && <ProjectHistoryTab projectId={project.id} />}
           </>
         )}

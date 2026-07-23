@@ -15,6 +15,15 @@ const MAP = {
   complete: { label: "Analyse complète", color: C.success, bg: "#EAF2E7" },
   partielle: { label: "Analyse partielle", color: C.warning, bg: "#FBF1E1" },
   echec: { label: "Échec de l'analyse", color: C.danger, bg: "#FBEAE9" },
+  
+  // NOUVEAUX STATUTS PROJET / MARCHÉ
+  interesse: { label: "Intéressé", color: C.accent, bg: C.accentLt },
+  en_preparation: { label: "En préparation", color: "#8A6A1F", bg: "#F3E8D0" },
+  soumis: { label: "Soumis", color: "#2F6FB0", bg: "#EAF2FA" },
+  gagne: { label: "Gagné", color: C.success, bg: "#EAF2E7" },
+  perdu: { label: "Perdu", color: C.danger, bg: "#FBEAE9" },
+  abandonne: { label: "Abandonné", color: C.faint, bg: C.paper },
+  en_execution: { label: "En exécution", color: C.success, bg: "#EAF2E7" },
 };
 
 export default function Badge({ status }) {
@@ -25,7 +34,12 @@ export default function Badge({ status }) {
       fontSize: 12.5, 
       fontWeight: 600, 
       color: s.color,
-      background: s.bg // Ajouté pour que les nouvelles clés avec 'bg' fonctionnent correctement
+      background: s.bg || "transparent", // Fallback transparent si 'bg' n'est pas défini
+      padding: "2px 8px",
+      borderRadius: 12,
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 4
     }}>
       ● {s.label}
     </span>

@@ -2,12 +2,13 @@ import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import {
   ChevronRight, Download, EyeOff, RotateCcw, AlertCircle, RefreshCw,
-  Calendar, Building2, FileText, Wallet, Hash, ExternalLink, X,
+  Calendar, Building2, FileText, Wallet, Hash, ExternalLink,
 } from "lucide-react";
 import {
   fetchAppelOffre, telechargerDCE, ignorerAppelOffre, reactiverAppelOffre, resolveFileUrl,
 } from "../../../services/appelsOffres";
 import AnalyseDcePanel from "./AnalyseDcePanel";
+import InteresseModal from "./InteresseModal"; // ← Ajout de l'import
 import ConfirmModal from "../../../components/ui/ConfirmModal";
 import Skeleton from "../../../components/ui/Skeleton";
 import { C, FONT, FONT_DISPLAY } from "../../../styles/theme";
@@ -40,13 +41,8 @@ export default function MarcheDetail() {
   const [downloadError, setDownloadError] = useState(null);
   const [updating, setUpdating] = useState(false);
   const [confirmIgnorer, setConfirmIgnorer] = useState(false);
-
-  const [toast, setToast] = useState(null);
-  function showSoonToast() {
-    setToast("Bientôt disponible — la conversion en Projet n'est pas encore branchée côté backend.");
-    clearTimeout(showSoonToast._t);
-    showSoonToast._t = setTimeout(() => setToast(null), 3200);
-  }
+  
+  const [interesseOpen, setInteresseOpen] = useState(false); // ← Ajout du state
 
   async function load() {
     setLoading(true);
@@ -247,7 +243,7 @@ export default function MarcheDetail() {
             <EyeOff size={14} /> Ignorer
           </button>
         )}
-        <button onClick={showSoonToast} style={primaryBtn}>
+        <button onClick={() => setInteresseOpen(true)} style={primaryBtn}>
           Je suis intéressé
         </button>
       </div>
@@ -262,19 +258,13 @@ export default function MarcheDetail() {
         />
       )}
 
-      {toast && (
-        <div style={{
-          position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
-          background: C.ink, color: "#fff", fontFamily: FONT, fontSize: 13, fontWeight: 500,
-          padding: "12px 20px", borderRadius: 8, boxShadow: C.shadow,
-          display: "flex", alignItems: "center", gap: 10, zIndex: 9999,
-          animation: "fadeIn 0.2s ease",
-        }}>
-          <span>{toast}</span>
-          <button onClick={() => setToast(null)} style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", padding: 0, display: "flex" }}>
-            <X size={14} />
-          </button>
-        </div>
+      {/* ← Remplacement du bloc toast par le modal Interesse */}
+      {interesseOpen && (
+        <InteresseModal 
+          appel={appel} 
+          onClose={() => setInteresseOpen(false)}
+          onSuccess={(projet) => navigate(`/projects/${projet.id}`)} 
+        />
       )}
     </div>
   );

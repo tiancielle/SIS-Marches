@@ -62,6 +62,14 @@ export function DataProvider({ children }) {
     return created;
   };
 
+  // Insère dans le state un projet déjà créé côté backend par un autre flux
+  // (ex: conversion AppelOffres → Projet via "Je suis intéressé"), sans re-POST.
+  // Sans ça, DataContext continue de travailler avec sa copie chargée au démarrage
+  // et le projet reste invisible jusqu'au prochain rechargement complet de la page.
+  const addProjectToState = (projet) => {
+    setProjects((prev) => (prev.some((p) => p.id === projet.id) ? prev : [...prev, projet]));
+  };
+
   const updateProject = async (id, data) => {
     const updated = await updateProjectApi(id, data);
     setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
@@ -266,7 +274,7 @@ export function DataProvider({ children }) {
   return (
     <DataContext.Provider
       value={{
-        projects, addProject, updateProject, deleteProject,
+        projects, addProject, addProjectToState, updateProject, deleteProject,
         subs, addSub, updateSub, deleteSub,
         contrats, addContrat, editContrat, removeContrat, getContratsForProject, getContratsForSub,
         contratFiles, setContratFile,

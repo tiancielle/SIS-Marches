@@ -19,3 +19,5 @@ export const telechargerDCE = (id) => api.post(`/appels-offres/${id}/telecharger
 export const ignorerAppelOffre = (id) => api.post(`/appels-offres/${id}/ignorer`);
 
 export const reactiverAppelOffre = (id) => api.post(`/appels-offres/${id}/reactiver`);
+
+export const interesserAppelOffre = (id, payload) => api.post(`/appels-offres/${id}/interesser`, payload);

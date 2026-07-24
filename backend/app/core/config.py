@@ -59,7 +59,10 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""  # via .env : GEMINI_API_KEY=...
     github_models_token: str = ""  # via .env : GITHUB_MODELS_TOKEN=... (legacy, en fin de vie le 30/07/2026)
     dce_analysis_model: str = "gemini-2.5-flash"
-    dce_context_max_chars: int = 60000  # taille max du contexte texte envoyé au LLM
+    dce_context_max_chars: int = 150000  # taille max du contexte texte envoyé au LLM (était 60000 —
+                                          # trop bas pour des .doc de 47k+ caractères chacun, cf. audit du 24/07)
+    dce_llm_max_output_tokens: int = 8192  # sans valeur explicite, on dépend du défaut du fournisseur —
+                                            # risqué avec 12 champs de sortie structurée dont plusieurs listes
 
     class Config:
         env_file = ".env"

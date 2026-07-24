@@ -114,6 +114,7 @@ def call_llm(appel: AppelOffres, context_text: str) -> dict:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.2,
+            max_tokens=settings.dce_llm_max_output_tokens,
         )
     except RateLimitError as exc:
         raise DceAiRateLimitError(f"Limite de débit GitHub Models atteinte : {exc}") from exc

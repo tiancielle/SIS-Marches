@@ -14,6 +14,7 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
+from app.core.config import settings
 from app.services.dce_processing.zip_extractor import ExtractedFile
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,19 @@ def _output_txt_path(extracted_file: ExtractedFile, output_dir: str) -> str:
 def _find_libreoffice_executable() -> Optional[str]:
     """Recherche l'exécutable LibreOffice (soffice) sur la machine."""
     logger.debug("[DIAG] Recherche de LibreOffice (soffice)...")
-    
+
+    # 0. Chemin explicite fourni en config — prioritaire, aucune détection nécessaire.
+    # Utile si l'install est à un emplacement non standard, ou pour contourner
+    # définitivement un souci de détection PATH intermittent.
+    if settings.libreoffice_path:
+        if os.path.exists(settings.libreoffice_path):
+            logger.info(f"[DIAG] Succès : LibreOffice via LIBREOFFICE_PATH (.env) : {settings.libreoffice_path}")
+            return settings.libreoffice_path
+        logger.warning(
+            f"[DIAG] LIBREOFFICE_PATH configuré ('{settings.libreoffice_path}') mais introuvable à cet "
+            f"emplacement — poursuite avec la détection automatique."
+        )
+
     # 1. Chemins d'installation par défaut sous Windows
     win_paths = [
         r"C:\Program Files\LibreOffice\program\soffice.exe",
@@ -50,21 +63,30 @@ def _find_libreoffice_executable() -> Optional[str]:
         if os.path.exists(path):
             logger.info(f"[DIAG] Succès : LibreOffice trouvé à l'emplacement par défaut : {path}")
             return path
-    
+
     # 2. Fallback : vérifier s'il est dans le PATH système (Linux/macOS ou install custom Windows)
+    # Timeout généreux (20s, contre 5s auparavant) : un premier lancement "à froid" de
+    # LibreOffice sur Windows peut légitimement dépasser 5s (antivirus, init profil...),
+    # ce qui provoquait des échecs de détection intermittents selon la charge machine.
     logger.debug("[DIAG] Non trouvé dans les chemins Windows par défaut. Vérification du PATH système...")
     for cmd in ["soffice", "soffice.exe"]:
         try:
-            result = subprocess.run([cmd, "--version"], capture_output=True, text=True, timeout=5)
+            result = subprocess.run([cmd, "--version"], capture_output=True, text=True, timeout=20)
             if result.returncode == 0:
                 logger.info(f"[DIAG] Succès : LibreOffice trouvé dans le PATH système : {cmd}")
                 return cmd
         except FileNotFoundError:
             continue
+        except subprocess.TimeoutExpired:
+            logger.warning(f"[DIAG] Détection de '{cmd}' expirée après 20s (démarrage à froid ?). Essai suivant.")
         except Exception as e:
             logger.debug(f"[DIAG] Erreur lors de la vérification de {cmd} dans le PATH : {e}")
-    
-    logger.warning("[DIAG] Échec : LibreOffice (soffice) introuvable sur cette machine.")
+
+    logger.warning(
+        "[DIAG] Échec : LibreOffice (soffice) introuvable sur cette machine. Si LibreOffice est bien "
+        "installé, renseigne LIBREOFFICE_PATH dans .env avec le chemin exact vers soffice.exe pour "
+        "contourner la détection."
+    )
     return None
 
 

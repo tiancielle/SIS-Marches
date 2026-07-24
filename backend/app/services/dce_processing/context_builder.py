@@ -65,6 +65,7 @@ class BuiltContext:
     texte: str
     documents_inclus: list[str]  # noms de fichiers effectivement inclus (même partiellement)
     tronque: bool
+    nb_caracteres_total: int
 
 
 def build_context(db: Session, appel_offres_id: int, max_chars: int) -> BuiltContext:
@@ -79,11 +80,14 @@ def build_context(db: Session, appel_offres_id: int, max_chars: int) -> BuiltCon
     )
     documents.sort(key=_sort_key)
 
-    # Plafond par document : sans lui, un seul gros fichier prioritaire (le CPS dépasse
-    # 60k caractères à lui seul sur des cas réels) consommerait tout le budget et
-    # empêcherait des documents pourtant prioritaires (RC, Acte d'engagement...) d'être
-    # vus par le LLM. On réserve donc au maximum un tiers du budget par document.
-    per_document_cap = max(max_chars // 3, 1)
+    # Plafond par document dynamique : proportionnel au nombre de documents éligibles,
+    # plutôt qu'un tiers fixe du budget. Un fixe à 1/3 pénalisait injustement un DCE à
+    # seulement 1-2 gros fichiers (chacun tronqué à 1/3 même si l'autre tiers du budget
+    # restait inutilisé), et laissait trop de marge à un DCE avec beaucoup de petits
+    # fichiers. Avec n documents, chacun a droit à max_chars / n au départ ; la seconde
+    # borne (`remaining`, budget réellement restant) reste la garde-fou pour ne jamais
+    # dépasser max_chars au total.
+    per_document_cap = max(max_chars // max(len(documents), 1), 1)
 
     chunks: list[str] = []
     documents_inclus: list[str] = []
@@ -120,4 +124,9 @@ def build_context(db: Session, appel_offres_id: int, max_chars: int) -> BuiltCon
     if tronque:
         texte_final += _TRUNCATION_NOTICE
 
-    return BuiltContext(texte=texte_final, documents_inclus=documents_inclus, tronque=tronque)
+    return BuiltContext(
+        texte=texte_final,
+        documents_inclus=documents_inclus,
+        tronque=tronque,
+        nb_caracteres_total=total_chars,
+    )

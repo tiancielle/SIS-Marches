@@ -12,6 +12,7 @@ Idempotent : peut être relancé pour le même AppelOffres (ex. après un échec
 temporaire) sans créer de doublons — les DceDocument et l'AnalyseDce sont réécrits.
 """
 import json
+import logging
 import os
 
 from sqlalchemy.orm import Session
@@ -23,6 +24,8 @@ from app.services.dce_processing import zip_extractor, document_indexer, context
 from app.services.dce_processing.zip_extractor import ZipExtractionError
 from app.services.dce_processing.ai_extractor import DceAiError, DceAiRateLimitError, EXPECTED_FIELDS
 from app.services.acquisition.sync_orchestrator import download_dce_for
+
+logger = logging.getLogger(__name__)
 
 _LIST_FIELDS = {
     "prestations_attendues",
@@ -117,6 +120,13 @@ def run_pipeline(db: Session, appel_offres_id: int, force: bool = False) -> Anal
             nb_documents_analyses=0,
         )
 
+    if built_context.tronque:
+        logger.warning(
+            f"[DIAG] Contexte tronqué pour l'AO {appel_offres_id} : "
+            f"{built_context.nb_caracteres_total}/{settings.dce_context_max_chars} caractères envoyés au LLM "
+            f"({len(built_context.documents_inclus)} document(s) inclus). Au moins un document a été raccourci."
+        )
+
     # 4. Appel LLM unique
     try:
         result = ai_extractor.call_llm(appel, built_context.texte)
@@ -134,6 +144,8 @@ def run_pipeline(db: Session, appel_offres_id: int, force: bool = False) -> Anal
     analyse.budget = result.get("budget") or None
     analyse.modele_utilise = settings.dce_analysis_model
     analyse.nb_documents_analyses = len(built_context.documents_inclus)
+    analyse.contexte_tronque = built_context.tronque
+    analyse.nb_caracteres_contexte = built_context.nb_caracteres_total
 
     filled_fields = sum(1 for field in EXPECTED_FIELDS if result.get(field))
     if filled_fields == 0:

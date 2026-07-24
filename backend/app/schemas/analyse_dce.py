@@ -43,6 +43,8 @@ class AnalyseDceRead(BaseModel):
     statut: str
     erreur: Optional[str] = None
     nb_documents_analyses: Optional[int] = None
+    contexte_tronque: Optional[bool] = None
+    nb_caracteres_contexte: Optional[int] = None
     modele_utilise: Optional[str] = None
     date_analyse: datetime
 
@@ -83,6 +85,8 @@ class AnalyseDceRead(BaseModel):
             statut=analyse.statut,
             erreur=analyse.erreur,
             nb_documents_analyses=analyse.nb_documents_analyses,
+            contexte_tronque=analyse.contexte_tronque,
+            nb_caracteres_contexte=analyse.nb_caracteres_contexte,
             modele_utilise=analyse.modele_utilise,
             date_analyse=analyse.date_analyse,
         )

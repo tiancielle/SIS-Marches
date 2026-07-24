@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, func
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Boolean, func
 from app.core.database import Base
 
 
@@ -33,5 +33,8 @@ class AnalyseDce(Base):
     erreur = Column(Text, nullable=True)
 
     nb_documents_analyses = Column(Integer, nullable=True)   # nb de DceDocument effectivement inclus dans le contexte
+    contexte_tronque = Column(Boolean, nullable=True)         # au moins un document a été raccourci avant
+                                                                # d'atteindre le LLM (voir context_builder.py)
+    nb_caracteres_contexte = Column(Integer, nullable=True)   # taille réelle du texte envoyé au LLM
     modele_utilise = Column(String, nullable=True)
     date_analyse = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

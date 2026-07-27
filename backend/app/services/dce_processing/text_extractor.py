@@ -19,6 +19,99 @@ from app.services.dce_processing.zip_extractor import ExtractedFile
 
 logger = logging.getLogger(__name__)
 
+# Instances PaddleOCR mises en cache par langue — le chargement est coûteux
+# (téléchargement des poids au premier lancement par langue), on ne veut le payer
+# qu'une fois par langue réellement utilisée.
+_paddle_ocr_instances: dict[str, object] = {}
+
+
+def _get_paddle_ocr(lang: str):
+    if lang not in _paddle_ocr_instances:
+        logger.info(f"[DIAG] Chargement de PaddleOCR (lang={lang})...")
+        from paddleocr import PaddleOCR
+        _paddle_ocr_instances[lang] = PaddleOCR(
+            lang=lang,
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
+            enable_mkldnn=False,
+        )
+        logger.info(f"[DIAG] PaddleOCR (lang={lang}) chargé avec succès.")
+    return _paddle_ocr_instances[lang]
+
+
+def _extract_ocr_result_texts(result_item) -> list:
+    """Les objets résultat de PaddleOCR 3.x exposent rec_texts soit via un accès
+    type dict, soit en attribut selon la version — on essaie les deux."""
+    try:
+        return list(result_item["rec_texts"])
+    except (KeyError, TypeError, IndexError):
+        pass
+    texts = getattr(result_item, "rec_texts", None)
+    return list(texts) if texts else []
+
+
+def _ocr_page_avec_langue(img_path: str, lang: str) -> str:
+    try:
+        ocr = _get_paddle_ocr(lang)
+        result = ocr.predict(img_path)
+        texts = []
+        for item in result:
+            texts.extend(_extract_ocr_result_texts(item))
+        return "\n".join(texts)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"[DIAG] Échec OCR (lang={lang}) sur {img_path} : {exc}")
+        return ""
+
+
+def _ocr_pdf_scanne(path: str, out_path: str) -> tuple[int, Optional[str]]:
+    """Repli OCR pour un PDF scanné (aucun texte natif) : rasterise chaque page
+    avec PyMuPDF puis tente PaddleOCR dans chacune des langues configurées
+    (settings.ocr_langs, ex: ["fr", "ar"] — les DCE marocains sont fréquemment
+    bilingues, parfois avec des pages entières dans une seule langue). Pour
+    chaque page, on garde le résultat le plus long : un passage dans la mauvaise
+    langue produit typiquement peu ou pas de texte reconnu, donc ce choix simple
+    suffit à sélectionner la bonne langue sans détection préalable."""
+    try:
+        import fitz  # PyMuPDF
+    except ImportError as exc:
+        return 0, f"PyMuPDF (fitz) non installé : {exc}"
+
+    langues = settings.ocr_langs.split(",") if settings.ocr_langs else ["fr"]
+    langues = [l.strip() for l in langues if l.strip()]
+
+    total_chars = 0
+    try:
+        doc = fitz.open(path)
+        nb_pages = len(doc)
+        with tempfile.TemporaryDirectory() as tmp_dir, open(out_path, "w", encoding="utf-8") as out:
+            for page_num, page in enumerate(doc, start=1):
+                logger.debug(f"[DIAG] OCR page {page_num}/{nb_pages} (langues testées : {langues})...")
+                pix = page.get_pixmap(dpi=200)
+                page_img_path = os.path.join(tmp_dir, f"page_{page_num}.png")
+                pix.save(page_img_path)
+
+                meilleur_texte = ""
+                meilleure_langue = None
+                for lang in langues:
+                    texte = _ocr_page_avec_langue(page_img_path, lang)
+                    if len(texte) > len(meilleur_texte):
+                        meilleur_texte = texte
+                        meilleure_langue = lang
+
+                if meilleur_texte:
+                    logger.debug(f"[DIAG] Page {page_num} : meilleure langue = {meilleure_langue} ({len(meilleur_texte)} caractères).")
+                    out.write(meilleur_texte)
+                    out.write("\n\n")
+                    total_chars += len(meilleur_texte)
+        doc.close()
+    except Exception as exc:  # noqa: BLE001
+        return 0, f"Erreur pendant l'OCR : {exc}"
+
+    if total_chars > 0:
+        logger.info(f"[DIAG] Succès OCR (PaddleOCR, {'/'.join(langues)}) : {total_chars} caractères extraits de {nb_pages} page(s).")
+    return total_chars, None
+
 SUPPORTED_EXTENSIONS = {"pdf", "docx", "doc", "xlsx"}
 
 
@@ -281,10 +374,19 @@ def extract_text(extracted_file: ExtractedFile, output_dir: str) -> ExtractionRe
         if erreur:
             return ExtractionResult(None, 0, "echec", erreur)
         if nb_chars == 0:
-            return ExtractionResult(
-                out_path, 0, "non_supporte",
-                "Aucun texte extrait — probablement un PDF scanné (image). OCR hors périmètre de cette session.",
-            )
+            logger.info(f"[DIAG] Aucun texte natif — tentative OCR (PaddleOCR) pour {extracted_file.nom_fichier}.")
+            nb_chars_ocr, erreur_ocr = _ocr_pdf_scanne(extracted_file.absolute_path, out_path)
+            if erreur_ocr:
+                return ExtractionResult(
+                    out_path, 0, "non_supporte",
+                    f"Aucun texte natif, et l'OCR a échoué : {erreur_ocr}",
+                )
+            if nb_chars_ocr == 0:
+                return ExtractionResult(
+                    out_path, 0, "non_supporte",
+                    "Aucun texte extrait, même après OCR (image illisible, page blanche, ou qualité de scan trop faible).",
+                )
+            return ExtractionResult(out_path, nb_chars_ocr, "succes", None)
         return ExtractionResult(out_path, nb_chars, "succes", None)
 
     if extension == "docx":

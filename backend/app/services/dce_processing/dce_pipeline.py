@@ -14,6 +14,7 @@ temporaire) sans créer de doublons — les DceDocument et l'AnalyseDce sont ré
 import json
 import logging
 import os
+import threading
 
 from sqlalchemy.orm import Session
 
@@ -26,6 +27,21 @@ from app.services.dce_processing.ai_extractor import DceAiError, DceAiRateLimitE
 from app.services.acquisition.sync_orchestrator import download_dce_for
 
 logger = logging.getLogger(__name__)
+
+# Verrou par AppelOffres : empêche deux exécutions concurrentes de run_pipeline
+# pour le même AO de se marcher dessus sur SQLite (un seul writer à la fois —
+# sans ce verrou, deux /traiter-dce quasi simultanés font planter le DELETE de
+# document_indexer avec "database is locked", ce qui avorte tout le pipeline
+# avant même d'atteindre le moindre fichier, pas seulement les .doc).
+_pipeline_locks_guard = threading.Lock()
+_pipeline_locks: dict[int, threading.Lock] = {}
+
+
+def _get_pipeline_lock(appel_offres_id: int) -> threading.Lock:
+    with _pipeline_locks_guard:
+        if appel_offres_id not in _pipeline_locks:
+            _pipeline_locks[appel_offres_id] = threading.Lock()
+        return _pipeline_locks[appel_offres_id]
 
 _LIST_FIELDS = {
     "prestations_attendues",
@@ -64,6 +80,21 @@ def _mark_failed(db: Session, analyse: AnalyseDce, message: str, nb_documents_an
 
 
 def run_pipeline(db: Session, appel_offres_id: int, force: bool = False) -> AnalyseDce:
+    lock = _get_pipeline_lock(appel_offres_id)
+    if not lock.acquire(blocking=False):
+        logger.warning(f"[DIAG] Traitement DCE déjà en cours pour AppelOffres {appel_offres_id} — appel ignoré.")
+        existing = db.query(AnalyseDce).filter(AnalyseDce.appel_offres_id == appel_offres_id).first()
+        if existing is not None:
+            return existing
+        raise DcePipelineError(f"Traitement déjà en cours pour AppelOffres {appel_offres_id}, réessaie dans quelques secondes.")
+
+    try:
+        return _run_pipeline_locked(db, appel_offres_id, force)
+    finally:
+        lock.release()
+
+
+def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False) -> AnalyseDce:
     appel = db.query(AppelOffres).filter(AppelOffres.id == appel_offres_id).first()
     if appel is None:
         raise DcePipelineError(f"AppelOffres {appel_offres_id} introuvable.")

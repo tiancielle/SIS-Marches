@@ -1,7 +1,9 @@
 import logging
+import os
 import re
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 import requests
 
@@ -68,6 +70,39 @@ def telecharger_dce(appel_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=502, detail=result.get("reason", "Échec du téléchargement"))
     
     return result
+
+
+@router.get("/{appel_id}/telecharger-dce/fichier")
+def telecharger_dce_fichier(appel_id: int, db: Session = Depends(get_db)):
+    """Sert le zip du DCE déjà téléchargé, avec les bons headers de téléchargement.
+
+    Pourquoi cet endpoint plutôt que de laisser le frontend construire l'URL à partir
+    de appel.url_cps directement : url_cps est un chemin FILESYSTEM interne (ex.
+    "./uploads/dce/dce_REF_ORG.zip"), utilisé tel quel par le pipeline pour ouvrir le
+    zip (zip_extractor). Le "./" initial n'est pas nettoyable côté frontend sans risquer
+    de casser cet usage interne (un chemin absolu romprait la résolution sur Windows).
+    On évite donc de faire porter à ce champ une double responsabilité (chemin interne
+    + URL publique) : ce endpoint est le seul point qui transforme le chemin interne en
+    téléchargement HTTP propre.
+    """
+    appel = db.query(AppelOffres).filter(AppelOffres.id == appel_id).first()
+    if not appel:
+        raise HTTPException(status_code=404, detail="Appel d'offres introuvable")
+    if not appel.url_cps:
+        raise HTTPException(status_code=404, detail="Aucun DCE téléchargé pour cet appel d'offres.")
+    if not os.path.exists(appel.url_cps):
+        raise HTTPException(
+            status_code=404,
+            detail="Le fichier DCE référencé n'existe plus sur le serveur (supprimé manuellement ?). "
+                   "Relance le téléchargement.",
+        )
+
+    nom_fichier = f"DCE_{appel.reference or appel_id}.zip".replace("/", "_")
+    return FileResponse(
+        path=appel.url_cps,
+        media_type="application/zip",
+        filename=nom_fichier,
+    )
 
 
 @router.post("/{appel_id}/ignorer", response_model=AppelOffresRead)

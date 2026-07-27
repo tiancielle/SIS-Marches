@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     # Si LibreOffice n'est pas détecté automatiquement, indique ici le chemin exact
     # vers soffice.exe (ex: "C:\\Users\\toi\\AppData\\Local\\Programs\\LibreOffice\\program\\soffice.exe")
     libreoffice_path: str = ""
+    # Langues testées pour l'OCR des PDF scannés (repli quand aucun texte natif).
+    # Séparées par des virgules ; on garde le résultat le plus long par page.
+    # "fr,ar" par défaut car les DCE marocains sont fréquemment bilingues.
+    ocr_langs: str = "fr,ar"
     llm_provider: str = "gemini"  # "gemini" | "github_models"
     gemini_api_key: str = ""  # via .env : GEMINI_API_KEY=...
     github_models_token: str = ""  # via .env : GITHUB_MODELS_TOKEN=... (legacy, en fin de vie le 30/07/2026)

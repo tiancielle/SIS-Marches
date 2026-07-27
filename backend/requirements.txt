@@ -14,3 +14,9 @@ pypdf
 python-docx
 openpyxl
 pypandoc
+
+# OCR pour les PDF scannés (repli si aucun texte natif)
+pymupdf
+paddlepaddle
+paddleocr
+opencv-python-headless

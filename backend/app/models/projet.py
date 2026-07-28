@@ -11,6 +11,7 @@ class Projet(Base):
     # hors-portail, créé manuellement).
     appel_offres_id = Column(Integer, ForeignKey("appel_offres.id"), nullable=True, unique=True, index=True)
     origine = Column(String, nullable=False, default="manuel")  # "appel_offres" | "manuel"
+    url_avis = Column(String, nullable=True)  # dupliqué depuis AppelOffres.url_avis à la conversion — survit à une éventuelle suppression de l'AO
 
     nom = Column(String, nullable=False)
     client = Column(String, nullable=True)

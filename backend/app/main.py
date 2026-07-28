@@ -5,6 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.core.scheduler import start_scheduler
+from app.core.database import SessionLocal  # ← AJOUTÉ
+from app.services.dce_processing.dce_pipeline import reset_analyses_bloquees  # ← AJOUTÉ
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -40,6 +42,13 @@ app.include_router(appel_offres_router.router)
 @app.on_event("startup")
 def on_startup():
     start_scheduler()
+    
+    # ← NOUVEAU : Réinitialisation des analyses bloquées au démarrage du serveur
+    db = SessionLocal()
+    try:
+        reset_analyses_bloquees(db)
+    finally:
+        db.close()
     
 app.add_middleware(
     CORSMiddleware,

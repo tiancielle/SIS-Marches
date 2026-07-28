@@ -194,6 +194,7 @@ def interesser(appel_id: int, data: InteresserRequest, db: Session = Depends(get
         chef=chef.nom if chef else None,
         chef_id=chef.id if chef else None,
         statut="interesse",
+        url_avis=appel.url_avis,  # ← AJOUTÉ : on duplique l'URL de l'avis pour qu'elle survive à une éventuelle suppression de l'AO
     )
     db.add(projet)
 
@@ -201,7 +202,12 @@ def interesser(appel_id: int, data: InteresserRequest, db: Session = Depends(get
 
     db.commit()
     db.refresh(projet)
-    return projet
+
+    # ← MODIFIÉ : on retourne un ProjetRead avec le flag a_analyse_dce renseigné
+    # (la variable `analyse` est déjà disponible plus haut dans la fonction)
+    projet_read = ProjetRead.model_validate(projet)
+    projet_read.a_analyse_dce = analyse is not None
+    return projet_read
 
 
 @router.post("/{appel_id}/traiter-dce", response_model=TraiterDceResult)

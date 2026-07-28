@@ -18,6 +18,7 @@ class ProjetBase(BaseModel):
     appel_offres_id: Optional[int] = None
     origine: str = "manuel"
     date_soumission: Optional[date] = None
+    url_avis: Optional[str] = None  # ← AJOUTÉ
 
 
 class ProjetCreate(ProjetBase):
@@ -31,6 +32,7 @@ class ProjetUpdate(ProjetBase):
 class ProjetRead(ProjetBase):
     id: int
     date_creation: Optional[datetime] = None
+    a_analyse_dce: bool = False  # ← AJOUTÉ
     model_config = ConfigDict(from_attributes=True)
 
 

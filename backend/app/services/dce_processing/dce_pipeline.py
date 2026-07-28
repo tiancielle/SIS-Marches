@@ -69,6 +69,24 @@ def _get_or_create_analyse(db: Session, appel_offres_id: int) -> AnalyseDce:
     return analyse
 
 
+def reset_analyses_bloquees(db: Session) -> int:
+    """À appeler au démarrage du serveur : un statut 'en_cours' au démarrage ne peut
+    être qu'un résidu d'un crash/arrêt précédent (process unique, pas de worker
+    distribué) — jamais un traitement légitimement en cours. On le débloque pour
+    éviter un polling frontend infini sur un AO qui ne sera jamais retraité tout seul."""
+    bloquees = db.query(AnalyseDce).filter(AnalyseDce.statut == "en_cours").all()
+    for analyse in bloquees:
+        analyse.statut = "echec"
+        analyse.erreur = (
+            "Traitement interrompu par un redémarrage ou un arrêt du serveur. "
+            "Relance l'analyse manuellement."
+        )
+    if bloquees:
+        db.commit()
+        logger.warning(f"[DIAG] {len(bloquees)} analyse(s) bloquée(s) en 'en_cours' réinitialisée(s) au démarrage.")
+    return len(bloquees)
+
+
 def _mark_failed(db: Session, analyse: AnalyseDce, message: str, nb_documents_analyses: int | None = None) -> AnalyseDce:
     analyse.statut = "echec"
     analyse.erreur = message

@@ -7,6 +7,8 @@ Pour les .doc (Word 97-2003), la stratégie est :
 3. Dégradation gracieuse (non_supporte) si les deux échouent, sans faire planter le pipeline.
 """
 import os
+os.environ.setdefault("OMP_NUM_THREADS", "4")
+os.environ.setdefault("MKL_NUM_THREADS", "4")
 import subprocess
 import shutil
 import tempfile
@@ -65,13 +67,14 @@ def _ocr_page_avec_langue(img_path: str, lang: str) -> str:
 
 
 def _ocr_pdf_scanne(path: str, out_path: str) -> tuple[int, Optional[str]]:
-    """Repli OCR pour un PDF scanné (aucun texte natif) : rasterise chaque page
-    avec PyMuPDF puis tente PaddleOCR dans chacune des langues configurées
-    (settings.ocr_langs, ex: ["fr", "ar"] — les DCE marocains sont fréquemment
-    bilingues, parfois avec des pages entières dans une seule langue). Pour
-    chaque page, on garde le résultat le plus long : un passage dans la mauvaise
-    langue produit typiquement peu ou pas de texte reconnu, donc ce choix simple
-    suffit à sélectionner la bonne langue sans détection préalable."""
+    """Repli OCR pour un PDF scanné. Optimisation : la langue dominante du document
+    est détectée une seule fois sur la première page (les DCE marocains sont
+    presque toujours mono-langue par document, rarement mélangés page par page),
+    puis appliquée en priorité sur les pages suivantes — on évite ainsi de tester
+    systématiquement les deux langues sur chaque page. Un filet de sécurité reste
+    en place : si la langue prioritaire donne un résultat trop faible sur une page
+    donnée (ex. annexe isolée dans l'autre langue), on retente avec les autres
+    langues configurées pour cette page précise."""
     try:
         import fitz  # PyMuPDF
     except ImportError as exc:
@@ -80,24 +83,44 @@ def _ocr_pdf_scanne(path: str, out_path: str) -> tuple[int, Optional[str]]:
     langues = settings.ocr_langs.split(",") if settings.ocr_langs else ["fr"]
     langues = [l.strip() for l in langues if l.strip()]
 
+    SEUIL_SUFFISANT = 30  # nb de caractères au-delà duquel une page est considérée bien reconnue
+
     total_chars = 0
+    langue_dominante: Optional[str] = None
+
     try:
         doc = fitz.open(path)
         nb_pages = len(doc)
         with tempfile.TemporaryDirectory() as tmp_dir, open(out_path, "w", encoding="utf-8") as out:
             for page_num, page in enumerate(doc, start=1):
-                logger.debug(f"[DIAG] OCR page {page_num}/{nb_pages} (langues testées : {langues})...")
                 pix = page.get_pixmap(dpi=200)
                 page_img_path = os.path.join(tmp_dir, f"page_{page_num}.png")
                 pix.save(page_img_path)
 
+                # Ordre de langues à tester pour cette page : la langue dominante
+                # détectée en premier si on la connaît déjà, sinon l'ordre par défaut.
+                if langue_dominante:
+                    ordre = [langue_dominante] + [l for l in langues if l != langue_dominante]
+                else:
+                    ordre = langues
+
+                logger.debug(f"[DIAG] OCR page {page_num}/{nb_pages} (ordre langues : {ordre})...")
+
                 meilleur_texte = ""
                 meilleure_langue = None
-                for lang in langues:
+                for lang in ordre:
                     texte = _ocr_page_avec_langue(page_img_path, lang)
                     if len(texte) > len(meilleur_texte):
                         meilleur_texte = texte
                         meilleure_langue = lang
+                    if len(meilleur_texte) >= SEUIL_SUFFISANT:
+                        break  # résultat déjà exploitable, pas besoin de tester les autres langues
+
+                # Dès la première page qui donne un résultat exploitable, on fige la
+                # langue dominante pour accélérer toutes les pages suivantes.
+                if langue_dominante is None and meilleure_langue and len(meilleur_texte) >= SEUIL_SUFFISANT:
+                    langue_dominante = meilleure_langue
+                    logger.info(f"[DIAG] Langue dominante détectée : {langue_dominante} (dès la page {page_num}).")
 
                 if meilleur_texte:
                     logger.debug(f"[DIAG] Page {page_num} : meilleure langue = {meilleure_langue} ({len(meilleur_texte)} caractères).")
@@ -111,6 +134,7 @@ def _ocr_pdf_scanne(path: str, out_path: str) -> tuple[int, Optional[str]]:
     if total_chars > 0:
         logger.info(f"[DIAG] Succès OCR (PaddleOCR, {'/'.join(langues)}) : {total_chars} caractères extraits de {nb_pages} page(s).")
     return total_chars, None
+
 
 SUPPORTED_EXTENSIONS = {"pdf", "docx", "doc", "xlsx"}
 

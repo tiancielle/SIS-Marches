@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     dce_llm_max_output_tokens: int = 8192  # sans valeur explicite, on dépend du défaut du fournisseur —
                                             # risqué avec 12 champs de sortie structurée dont plusieurs listes
 
+    # Checklist "pièces du dossier" — fichiers uploadés par l'utilisateur (distinct
+    # du stockage des documents DCE déjà traités, cf. dce_extracted_storage_path)
+    piece_dossier_storage_path: str = "./uploads/pieces_dossier"
+
     class Config:
         env_file = ".env"
 

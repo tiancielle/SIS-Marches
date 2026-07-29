@@ -22,6 +22,8 @@ from app.models import dce
 from app.models import equipe, projet_equipe
 from app.models import appel_offres, analyse_ia  # noqa: F401 — nouveau module
 from app.models import dce_document, analyse_dce  # noqa: F401 — pipeline de traitement des DCE
+from app.models import piece_dossier  # noqa: F401
+from app.routers import piece_dossier as piece_dossier_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -29,7 +31,7 @@ from app.routers import projets, sous_traitants
 from app.routers import contrats
 from app.routers import dce
 from app.routers import equipe
-from app.routers import appel_offres as appel_offres_router  # nouveau
+from app.routers import appel_offres as appel_offres_router  
 
 app.include_router(dce.router)
 app.include_router(contrats.router)
@@ -38,6 +40,7 @@ app.include_router(sous_traitants.router)
 app.include_router(equipe.router)
 app.include_router(equipe.projet_equipe_router)
 app.include_router(appel_offres_router.router)
+app.include_router(piece_dossier_router.router)  # ← AJOUTÉ, manquait — sans ça, /projets/{id}/pieces-dossier renvoyait 404
 
 @app.on_event("startup")
 def on_startup():

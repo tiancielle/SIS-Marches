@@ -47,7 +47,7 @@ _SYSTEM_PROMPT = (
 _JSON_SCHEMA_INSTRUCTIONS = """
 Structure JSON attendue, exactement ces clés :
 {
-  "resume": "résumé exécutif clair et synthétique en 3-5 phrases, à destination d'un décideur pressé",
+  "resume": "résumé exécutif détaillé en 8-12 phrases, à destination d'un décideur qui doit comprendre le marché sans lire le CPS en entier : nature précise du marché, contexte/localisation, principales prestations attendues, profil d'équipe requis, montant si connu, délais clés, et tout élément déterminant pour la décision de candidater (contrainte forte, spécificité notable). Reste factuel, ne répète pas mot pour mot objet_marche.",
   "objet_marche": "reformulation claire et précise de l'objet du marché, une à deux phrases",
   "prestations_attendues": ["liste des prestations/missions concrètes attendues du prestataire"],
   "competences_recherchees": ["liste de compétences/profils recherchés"],
@@ -130,7 +130,15 @@ def call_llm(appel: AppelOffres, context_text: str) -> dict:
     try:
         parsed = json.loads(_strip_code_fences(raw_content))
     except json.JSONDecodeError as exc:
+        import logging
+        logging.getLogger(__name__).error(
+            "[DIAG] Réponse LLM non-JSON pour AO %s. finish_reason=%s. Contenu brut (500 premiers car.) : %r",
+            appel.id,
+            response.choices[0].finish_reason if response.choices else "?",
+            raw_content[:500],
+        )
         raise DceAiError(f"Réponse LLM non-JSON : {exc}") from exc
+
 
     if not isinstance(parsed, dict):
         raise DceAiError("Réponse LLM JSON valide mais pas un objet.")

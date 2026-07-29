@@ -57,8 +57,12 @@ export const SEED_EQUIPE = [
 ];
 
 export const fmt = (n) => new Intl.NumberFormat("fr-FR").format(Math.round(n)) + " DH";
-export const fmtDate = (d) =>
-  new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
+export const fmtDate = (d) => {
+  if (!d) return "Non communiqué";
+  const date = new Date(d);
+  if (Number.isNaN(date.getTime())) return "Non communiqué";
+  return date.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
+};
 
 export const SEED_MARCHES = [
   {
@@ -131,9 +135,3 @@ export const SEED_ANALYSES = [
     date_analyse: "2026-07-15",
   },
 ];
-
-
-
-
-
-

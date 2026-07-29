@@ -6,12 +6,12 @@ import {
 } from "lucide-react";
 import {
   fetchAppelsOffres, synchroniserAppelsOffres, telechargerDCE, ignorerAppelOffre, reactiverAppelOffre,
-  resolveFileUrl,
 } from "../../../services/appelsOffres";
 import ConfirmModal from "../../../components/ui/ConfirmModal";
 import Skeleton from "../../../components/ui/Skeleton";
 import InteresseModal from "./InteresseModal";
 import { C, FONT, FONT_DISPLAY } from "../../../styles/theme";
+import { BASE_URL } from "../../../services/client";
 
 const STATUT_LABELS = {
   nouveau: "Nouveau",
@@ -351,7 +351,7 @@ export default function MarchesView() {
                 <div style={{ display: "flex", gap: 6, marginTop: 2, flexWrap: "wrap" }} onClick={(e) => e.stopPropagation()}>
                   <CardAction icon={FileText} label="Voir" onClick={() => navigate(`/marches/${a.id}`)} />
                   {a.url_cps ? (
-                    <a href={resolveFileUrl(a.url_cps)} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+                    <a href={`${BASE_URL}/appels-offres/${a.id}/telecharger-dce/fichier`} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
                       <CardAction icon={Download} label="Dossier" />
                     </a>
                   ) : (

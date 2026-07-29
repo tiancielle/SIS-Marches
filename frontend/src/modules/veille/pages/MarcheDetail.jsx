@@ -12,6 +12,7 @@ import InteresseModal from "./InteresseModal"; // ← Ajout de l'import
 import ConfirmModal from "../../../components/ui/ConfirmModal";
 import Skeleton from "../../../components/ui/Skeleton";
 import { C, FONT, FONT_DISPLAY } from "../../../styles/theme";
+import { BASE_URL } from "../../../services/client";
 
 const STATUT_LABELS = { nouveau: "Nouveau", analyse: "Analysé", interesse: "Intéressé", ignore: "Ignoré" };
 const STATUT_COLORS = {
@@ -193,7 +194,7 @@ export default function MarcheDetail() {
 
           if (statutDce === "telecharge" && appel.url_cps) {
             return (
-              <a href={resolveFileUrl(appel.url_cps)} target="_blank" rel="noreferrer" style={primaryBtn}>
+              <a href={`${BASE_URL}/appels-offres/${appel.id}/telecharger-dce/fichier`} target="_blank" rel="noreferrer" style={primaryBtn}>
                 <Download size={14} /> Télécharger le dossier
               </a>
             );

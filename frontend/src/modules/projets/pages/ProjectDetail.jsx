@@ -124,9 +124,9 @@ export default function ProjectDetail() {
           <>
             {tab === "infos" && <ProjectInfoTab project={project} />}
             {tab === "subs" && <ProjectSubsTab projectId={project.id} />}
-            {tab === "dce" && <ProjectDCETab projectId={project.id} />}
+            {tab === "dce" && <ProjectDCETab project={project} />}
             {tab === "equipe" && <ProjectEquipeTab projectId={project.id} />}
-            {tab === "docs" && <ProjectDocsTab projectId={project.id} />}
+            {tab === "docs" && <ProjectDocsTab project={project} />}
             {tab === "candidature" && <ProjectCandidatureTab project={project} />}
             {tab === "historique" && <ProjectHistoryTab projectId={project.id} />}
           </>

@@ -1,7 +1,17 @@
+"""
+Client HTTP stateful pour l'acquisition des données du portail.
+Justification : Une acquisition fiable est le prérequis absolu de toute chaîne 
+d'extraction (OCR/NLP). Un fichier téléchargé de manière incomplète ou corrompue 
+rendrait toute tentative d'extraction bilingue ultérieure vaine.
+"""
 import time
 import requests
 from app.core.config import settings
 
+# ÉMULATION DE NAVIGATEUR : Les portails publics utilisent souvent des WAF 
+# (Web Application Firewalls) qui bloquent les requêtes de scripts Python 
+# par défaut. Ces en-têtes permettent de passer pour un navigateur légitime, 
+# garantissant l'accès aux fichiers DCE nécessaires à l'analyse.
 BROWSER_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -25,6 +35,10 @@ class PortalClient:
     Encapsule une session HTTP unique pour tout le parcours
     (formulaire -> recherche -> liste -> fiche -> téléchargement DCE).
     Une instance = un run d'acquisition. Fermer explicitement via close().
+    
+    ARCHITECTURE : Le maintien d'une session unique (requests.Session) est crucial 
+    pour conserver les cookies de session et les jetons CSRF entre les différentes 
+    étapes du parcours, imitant le comportement d'un utilisateur réel.
     """
 
     def __init__(self):
@@ -33,6 +47,12 @@ class PortalClient:
         self.timeout = settings.portal_timeout_seconds
 
     def _request_with_retry(self, method, url, max_retries=3, **kwargs):
+        """
+        Mécanisme de résilience réseau (Exponential Backoff).
+        Les portails publics peuvent être instables ou limiter le débit. 
+        Plutôt que d'échouer immédiatement et de perdre un document potentiel 
+        pour l'analyse OCR, on tente de nouveau avec un délai croissant.
+        """
         last_exc = None
         for attempt in range(max_retries):
             try:

@@ -1,9 +1,17 @@
-"""Un seul appel LLM par DCE, pour produire une extraction structurée en JSON strict
+"""
+Un seul appel LLM par DCE, pour produire une extraction structurée en JSON strict
 à partir du contexte texte assemblé.
 
 Fournisseur par défaut : Gemini (via l'endpoint de compatibilité OpenAI de Google),
 gratuit sans carte bancaire et sans date de fin annoncée — contrairement à GitHub
 Models, dont l'arrêt définitif est prévu le 30 juillet 2026.
+
+Justification architecturale : Ce module agit comme le moteur d'inférence du pipeline.
+Il est conçu pour maximiser la fiabilité de l'extraction d'entités (Named Entity Recognition 
+étendue) tout en minimisant les coûts et les risques de dépendance à un fournisseur 
+dont le service pourrait être déprécié. L'approche "Single Shot" (un seul appel) optimise 
+la latence et la consommation de tokens, en s'appuyant sur un contexte préalablement 
+filtré et hiérarchisé par le `context_builder`.
 """
 import json
 import re
@@ -13,11 +21,19 @@ from openai import OpenAI, RateLimitError, APIError, APIConnectionError
 from app.core.config import settings
 from app.models.appel_offres import AppelOffres
 
+# ABSTRACTION DU FOURNISSEUR : 
+# L'utilisation d'un dictionnaire de URLs permet de changer de provider (Gemini, GitHub, etc.) 
+# via une simple variable d'environnement, sans modifier le code. Cela garantit la pérennité 
+# du système face aux changements de politique des API (ex: fin de vie d'un service).
 _PROVIDER_BASE_URLS = {
     "gemini": "https://generativelanguage.googleapis.com/v1beta/openai/",
     "github_models": "https://models.github.ai/inference",
 }
 
+# SCHÉMA DE DONNÉES ATTENDU :
+# Cette liste sert de référence pour l'évaluation de la complétude des données en aval 
+# (dans le pipeline). Elle garantit que le contrat d'interface entre le LLM et la base 
+# de données est respecté.
 EXPECTED_FIELDS = [
     "resume",
     "objet_marche",
@@ -34,6 +50,11 @@ EXPECTED_FIELDS = [
     "budget",
 ]
 
+# INGÉNIERIE DE PROMPT : RÔLE ET CONTRAINTES NÉGATIVES
+# L'attribution d'un rôle ("consultant senior") ancre le modèle dans un registre lexical 
+# professionnel. Les contraintes négatives ("n'invente jamais", "ne suppose jamais") sont 
+# cruciales pour l'atténuation des hallucinations (hallucination mitigation), un enjeu 
+# majeur en extraction de données structurées à partir de documents réels.
 _SYSTEM_PROMPT = (
     "Tu es un consultant senior en bureau d'études qui analyse des dossiers de "
     "consultation de marchés publics marocains (DCE) pour évaluer leur pertinence "
@@ -44,6 +65,11 @@ _SYSTEM_PROMPT = (
     "qui ne serait pas explicitement dans le texte fourni."
 )
 
+# SCHÉMA D'EXTRACTION STRUCTURÉE :
+# Plutôt que de laisser le modèle deviner le format, on lui fournit un "few-shot" implicite 
+# via la description détaillée de chaque clé. Cela guide le raisonnement du modèle pour 
+# qu'il extraie des informations actionnables (ex: distinguer "prestations" de "livrables"), 
+# ce qui est essentiel pour la qualité des données (Data Quality) en aval.
 _JSON_SCHEMA_INSTRUCTIONS = """
 Structure JSON attendue, exactement ces clés :
 {
@@ -69,16 +95,31 @@ class DceAiError(Exception):
 
 
 class DceAiRateLimitError(DceAiError):
-    """Limite de débit atteinte côté GitHub Models (tier gratuit, quelques req/min)."""
+    """
+    Limite de débit atteinte côté fournisseur (ex: tier gratuit).
+    Séparer cette exception permet au pipeline de distinguer une erreur transitoire 
+    (qu'on pourrait retry plus tard) d'une erreur structurelle (prompt invalide, API down).
+    """
 
 
 def _get_client() -> OpenAI:
+    """
+    Fabrique (Factory) du client API.
+    Centralise la logique de configuration, permettant d'injecter les bonnes 
+    credentials et le bon endpoint en fonction des variables d'environnement.
+    """
     base_url = _PROVIDER_BASE_URLS.get(settings.llm_provider, _PROVIDER_BASE_URLS["gemini"])
     api_key = settings.gemini_api_key if settings.llm_provider == "gemini" else settings.github_models_token
     return OpenAI(base_url=base_url, api_key=api_key)
 
 
 def _build_prompt(appel: AppelOffres, context_text: str) -> str:
+    """
+    Construction du prompt avec injection de métadonnées (Prompt Grounding).
+    Fournir la référence, l'objet et l'organisme en en-tête aide le modèle à 
+    contextualiser le texte brut qui suit, améliorant la précision de l'extraction 
+    des entités nommées et des relations.
+    """
     entete = (
         f"Référence du marché : {appel.reference}\n"
         f"Objet (portail) : {appel.objet or 'non renseigné'}\n"
@@ -94,15 +135,23 @@ def _build_prompt(appel: AppelOffres, context_text: str) -> str:
 
 
 def _strip_code_fences(raw: str) -> str:
-    """Filet de sécurité : certains modèles ajoutent des balises ```json malgré la
-    consigne système. On les retire avant de parser."""
+    """
+    Heuristique de nettoyage post-génération (Programmation défensive).
+    Malgré les consignes strictes ("sans balises markdown"), les modèles de langage 
+    sont probabilistes et ajoutent souvent des blocs ```json. Cette expression régulière 
+    assure un parsing JSON robuste en isolant le contenu utile, évitant un échec du 
+    pipeline pour un détail de formatage cosmétique.
+    """
     match = re.search(r"```(?:json)?\s*(.*?)\s*```", raw, re.DOTALL)
     return match.group(1) if match else raw
 
 
 def call_llm(appel: AppelOffres, context_text: str) -> dict:
-    """Appelle le LLM et retourne le dict JSON parsé. Lève DceAiRateLimitError ou
-    DceAiError en cas d'échec — à charge de l'appelant de dégrader proprement."""
+    """
+    Point d'entrée de l'inférence.
+    Appelle le LLM et retourne le dict JSON parsé. Lève DceAiRateLimitError ou
+    DceAiError en cas d'échec — à charge de l'appelant de dégrader proprement.
+    """
     client = _get_client()
     prompt = _build_prompt(appel, context_text)
 
@@ -113,14 +162,21 @@ def call_llm(appel: AppelOffres, context_text: str) -> dict:
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
+            # RÉGLAGE DE L'ENTROPIE : Une température basse (0.2) est impérative pour 
+            # des tâches d'extraction de données. Elle réduit la créativité du modèle 
+            # au profit de la détermination et de la fidélité au texte source.
             temperature=0.2,
             max_tokens=settings.dce_llm_max_output_tokens,
         )
     except RateLimitError as exc:
+        # Erreur transitoire de quota, remontée spécifiquement pour une gestion adaptée.
         raise DceAiRateLimitError(f"Limite de débit GitHub Models atteinte : {exc}") from exc
     except (APIError, APIConnectionError) as exc:
+        # Erreur d'infrastructure ou de réseau.
         raise DceAiError(f"Erreur API GitHub Models : {exc}") from exc
-    except Exception as exc:  # noqa: BLE001 — on ne veut jamais planter le pipeline sur un appel réseau
+    except Exception as exc:  # noqa: BLE001
+        # Filet de sécurité ultime : on capture TOUT pour éviter qu'une exception 
+        # non prévue (ex: problème de sérialisation interne) ne fasse crasher le serveur.
         raise DceAiError(f"Erreur inattendue lors de l'appel LLM : {exc}") from exc
 
     raw_content = response.choices[0].message.content if response.choices else None
@@ -128,9 +184,15 @@ def call_llm(appel: AppelOffres, context_text: str) -> dict:
         raise DceAiError("Réponse LLM vide.")
 
     try:
+        # Validation et assainissement des données : on tente de parser le JSON 
+        # après avoir appliqué notre heuristique de nettoyage des balises markdown.
         parsed = json.loads(_strip_code_fences(raw_content))
     except json.JSONDecodeError as exc:
         import logging
+        # OBSERVABILITÉ CONTRÔLÉE : En cas d'échec de parsing, on loggue le début 
+        # de la réponse brute (500 caractères). Cela suffit généralement à déboguer 
+        # un prompt défaillant, tout en évitant de saturer les logs ou la mémoire 
+        # avec des réponses LLM potentiellement énormes et malformées.
         logging.getLogger(__name__).error(
             "[DIAG] Réponse LLM non-JSON pour AO %s. finish_reason=%s. Contenu brut (500 premiers car.) : %r",
             appel.id,
@@ -139,7 +201,8 @@ def call_llm(appel: AppelOffres, context_text: str) -> dict:
         )
         raise DceAiError(f"Réponse LLM non-JSON : {exc}") from exc
 
-
+    # VÉRIFICATION DE TYPE : On s'assure que la racine du JSON est bien un objet (dict) 
+    # et non un tableau ou un scalaire, respectant ainsi le contrat de l'API.
     if not isinstance(parsed, dict):
         raise DceAiError("Réponse LLM JSON valide mais pas un objet.")
 

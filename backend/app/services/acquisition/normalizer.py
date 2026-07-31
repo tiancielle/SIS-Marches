@@ -1,9 +1,19 @@
+"""
+normalizer.py : Nettoyage et normalisation des données brutes extraites du HTML.
+Justification : En data mining, le "Data Cleansing" est l'étape la plus critique. 
+Des métadonnées mal normalisées (références tronquées, dates invalides) empêcheraient 
+de relier correctement le fichier téléchargé à son contexte métier pour l'OCR.
+"""
 import re
 from datetime import datetime
 
 
 def extract_form_fields(soup) -> dict:
-    """Extrait tous les champs d'un formulaire PRADO (y compris PRADO_PAGESTATE)."""
+    """
+    Extrait tous les champs d'un formulaire PRADO (y compris PRADO_PAGESTATE).
+    ROBUSTESSE : Au lieu de coder les champs en dur, on parse dynamiquement le DOM. 
+    Cela rend le scraper résilient aux changements mineurs de structure du portail.
+    """
     data = {}
     for tag in soup.find_all(["input", "select", "textarea"]):
         name = tag.get("name")
@@ -48,6 +58,7 @@ def normalize_montant(raw: str | None):
 
 
 def normalize_text(raw: str | None):
+    """Supprime les espaces multiples et les sauts de ligne parasites."""
     if raw is None:
         return None
     return " ".join(raw.split())
@@ -61,7 +72,7 @@ def parse_reference(raw_reference_objet: str | None):
 
 
 def parse_objet(raw_reference_objet: str | None):
-    """Extrait le texte entre 'Objet' et 'Acheteur public' (best-effort, texte souvent dupliqué)."""
+    """Extraction best-effort du texte entre 'Objet' et 'Acheteur public'."""
     if not raw_reference_objet:
         return None
     m = re.search(r"Objet\s*:?\s*(.*?)(?:Acheteur public|$)", raw_reference_objet, re.DOTALL)
@@ -76,7 +87,7 @@ def parse_acheteur(raw_reference_objet: str | None):
 
 
 def parse_type_procedure(raw_procedure_categorie: str | None):
-    """Best-effort : cherche un des libellés de procédure connus. À enrichir si de nouveaux types apparaissent."""
+    """Classification simple basée sur un dictionnaire de termes connus."""
     if not raw_procedure_categorie:
         return None
     known_types = [

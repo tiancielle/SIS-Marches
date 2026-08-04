@@ -30,12 +30,38 @@ from app.models.appel_offres import AppelOffres
 from app.models.analyse_dce import AnalyseDce
 from app.services.dce_processing import zip_extractor, document_indexer, context_builder, ai_extractor
 from app.services.dce_processing.zip_extractor import ZipExtractionError
-from app.services.dce_processing.ai_extractor import DceAiError, DceAiRateLimitError, EXPECTED_FIELDS
+from app.services.dce_processing.ai_extractor import EXPECTED_FIELDS
 from app.services.acquisition.sync_orchestrator import download_dce_for
+
+# DIAGNOSTIC 2 : Classification des champs par importance métier
+# Les champs indispensables sont ceux qui rendent une analyse exploitable même sans les autres
+CHAMPS_INDISPENSABLES = [
+    "resume",              # Résumé exécutif - essentiel pour prise de décision
+    "objet_marche",        # Objet du marché - fondamental
+    "budget",              # Budget - critique pour évaluation
+]
+
+# Les champs importants mais contextuels (dépendent du contenu du DCE)
+CHAMPS_IMPORTANTS = [
+    "prestations_attendues",    # Définit le périmètre du marché
+    "pieces_administratives",   # Obligations de candidature
+    "delais_importants",         # Contraintes temporelles
+]
+
+# Les champs contextuels qui peuvent être absents naturellement
+CHAMPS_CONTEXTUELS = [
+    "competences_recherchees",   # Dépend du profil requis
+    "technologies_mentionnees",   # Dépend des spécifications techniques
+    "livrables_attendus",        # Dépend de la nature du marché
+    "contraintes_importantes",   # Dépend des spécificités
+    "criteres_evaluation",       # Dépend du type de procédure
+    "points_vigilance",          # Analyse de risque
+    "recommandations",           # Conseil d'expert
+]
 
 logger = logging.getLogger(__name__)
 
-# CONTRÔLE DE CONCURRENCE (Resource-Level Mutex) :
+# CONTRÔLE DE CONCURRENCE (Resource-Level Mutex) : 
 # SQLite ne supporte qu'un seul writer à la fois. Si deux requêtes HTTP tentent de traiter 
 # le même AO simultanément, l'une d'elles planterait avec "database is locked".
 # Plutôt qu'un verrou global (qui sérialiserait tout le pipeline et tuerait les performances), 
@@ -52,6 +78,7 @@ def _get_pipeline_lock(appel_offres_id: int) -> threading.Lock:
         if appel_offres_id not in _pipeline_locks:
             _pipeline_locks[appel_offres_id] = threading.Lock()
         return _pipeline_locks[appel_offres_id]
+
 
 # SCHÉMA DE DONNÉES LLM : 
 # Regroupement des champs attendus qui sont des listes. 
@@ -96,8 +123,8 @@ def _get_or_create_analyse(db: Session, appel_offres_id: int) -> AnalyseDce:
 def reset_analyses_bloquees(db: Session) -> int:
     """
     Récupération d'état (State Recovery) au démarrage.
-    JUSTIFICATION : Dans un système monolithique ou sans worker distribué, un statut 'en_cours' 
-    au démarrage est nécessairement un état orphelin (résidu d'un crash, OOM killer, ou arrêt brutal). 
+    JUSTIFICATION : Dans un système monolithique ou sans worker distribué, un statut 'en_cours' au démarrage 
+    est nécessairement un état orphelin (résidu d'un crash, OOM killer, ou arrêt brutal). 
     Cette fonction agit comme un "garbage collector" d'états pour éviter qu'un utilisateur ne soit 
     bloqué indéfiniment sur une interface de polling frontend.
     """
@@ -155,7 +182,7 @@ def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False)
     if appel is None:
         raise DcePipelineError(f"AppelOffres {appel_offres_id} introuvable.")
 
-    # OPTIMISATION (Évaluation à court-circuit / Memoization) :
+    # OPTIMISATION (Évaluation à court-circuit / Memoization) : 
     # Si l'analyse est déjà complète, on ne relance pas le pipeline (coûtreux en temps et en tokens LLM).
     # Le paramètre `force` permet de contourner ce cache pour les cas de re-jeu (debug, amélioration de prompt).
     existing = db.query(AnalyseDce).filter(AnalyseDce.appel_offres_id == appel_offres_id).first()
@@ -225,14 +252,8 @@ def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False)
         )
 
     # --- ÉTAPE 4 : Inférence (Appel au modèle prédictif / LLM) ---
-    try:
-        result = ai_extractor.call_llm(appel, built_context.texte)
-    except DceAiRateLimitError as exc:
-        # Erreur transitoire d'infrastructure (quota API)
-        return _mark_failed(db, analyse, str(exc), nb_documents_analyses=len(built_context.documents_inclus))
-    except DceAiError as exc:
-        # Erreur modèle (prompt invalide, contenu bloqué par le filtre de sécurité du LLM, etc.)
-        return _mark_failed(db, analyse, str(exc), nb_documents_analyses=len(built_context.documents_inclus))
+    # L'appel LLM retourne maintenant un fallback en cas d'erreur au lieu de lever une exception
+    result = ai_extractor.call_llm(appel, built_context.texte)
 
     # --- ÉTAPE 5 : Structuration du résultat et Évaluation de la qualité ---
     # Mapping de la sortie JSON du LLM vers le modèle de base de données.
@@ -253,7 +274,68 @@ def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False)
     # Évaluation de la complétude de la sortie du LLM (Data Quality Assessment)
     # On compte le nombre de champs attendus qui ont été effectivement remplis.
     filled_fields = sum(1 for field in EXPECTED_FIELDS if result.get(field))
-    if filled_fields == 0:
+    is_fallback = result.get("resume", "").startswith("Analyse automatique non disponible")
+
+    # DIAGNOSTIC 1 : Audit détaillé des champs remplis
+    logger.info(f"[DIAG-VALIDATION] === AUDIT COMPLÉTUDE CHAMPS ===")
+    logger.info(f"[DIAG-VALIDATION] Nombre total de champs attendus: {len(EXPECTED_FIELDS)}")
+    logger.info(f"[DIAG-VALIDATION] Nombre de champs remplis: {filled_fields}")
+    logger.info(f"[DIAG-VALIDATION] Ratio: {filled_fields}/{len(EXPECTED_FIELDS)} ({filled_fields/len(EXPECTED_FIELDS)*100:.1f}%)")
+
+    empty_fields = []
+    for field in EXPECTED_FIELDS:
+        value = result.get(field)
+        is_empty = not value or (isinstance(value, list) and len(value) == 0)
+        if is_empty:
+            empty_fields.append(field)
+            logger.info(f"[DIAG-VALIDATION] Champ VIDE: {field} (valeur: {repr(value)})")
+        else:
+            # Calcul de la taille selon le type
+            if isinstance(value, str):
+                taille = len(str(value))
+            elif isinstance(value, list):
+                taille = len(value)
+            else:
+                taille = "N/A"
+            logger.info(f"[DIAG-VALIDATION] Champ REMPLI: {field} (type: {type(value).__name__}, taille: {taille})")
+
+    if empty_fields:
+        logger.info(f"[DIAG-VALIDATION] Champs vides: {empty_fields}")
+
+    # DIAGNOSTIC 2 : Audit de la logique métier actuelle
+    logger.info(f"[DIAG-METIER] === AUDIT LOGIQUE MÉTIER ===")
+    logger.info(f"[DIAG-METIER] Règle actuelle: filled_fields < len(EXPECTED_FIELDS) → statut='partielle'")
+    logger.info(f"[DIAG-METIER] Champ contextuels vides: {[f for f in empty_fields if f in CHAMPS_CONTEXTUELS]}")
+    logger.info(f"[DIAG-METIER] Champs indispensables vides: {[f for f in empty_fields if f in CHAMPS_INDISPENSABLES]}")
+
+    # Évaluation basée sur les champs indispensables
+    indispensable_filled = sum(1 for field in CHAMPS_INDISPENSABLES if result.get(field))
+    logger.info(f"[DIAG-METIER] Champs indispensables remplis: {indispensable_filled}/{len(CHAMPS_INDISPENSABLES)}")
+
+    # DIAGNOSTIC 4 : Identification de la cause réelle du statut
+    cause_statut = ""
+    if is_fallback:
+        cause_statut = "LLM échoué (fallback utilisé)"
+    elif filled_fields == 0:
+        cause_statut = "LLM n'a extrait aucune information"
+    elif indispensable_filled < len(CHAMPS_INDISPENSABLES):
+        cause_statut = "Champs indispensables manquants"
+    elif filled_fields < len(EXPECTED_FIELDS):
+        cause_statut = "Champs contextuels manquants (non problématique)"
+    else:
+        cause_statut = "Extraction complète"
+
+    logger.info(f"[DIAG-STATUT] === DÉTERMINATION STATUT FINAL ===")
+    logger.info(f"[DIAG-STATUT] Cause: {cause_statut}")
+    logger.info(f"[DIAG-STATUT] Statut assigné: {analyse.statut}")
+    if analyse.erreur:
+        logger.info(f"[DIAG-STATUT] Message erreur: {analyse.erreur}")
+
+    if is_fallback:
+        # Fallback utilisé (LLM échoué)
+        analyse.statut = "partielle"
+        analyse.erreur = "L'analyse automatique par IA n'a pas pu être complétée (erreur serveur ou API). Les informations affichées sont basiques. Veuillez consulter manuellement les documents."
+    elif filled_fields == 0:
         # Hallucination négative ou échec total du modèle à comprendre le contexte
         analyse.statut = "echec"
         analyse.erreur = "Le LLM n'a retourné aucune information exploitable pour ce DCE."

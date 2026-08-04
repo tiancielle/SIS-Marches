@@ -15,6 +15,7 @@ filtré et hiérarchisé par le `context_builder`.
 """
 import json
 import re
+import logging
 
 from openai import OpenAI, RateLimitError, APIError, APIConnectionError
 
@@ -146,11 +147,33 @@ def _strip_code_fences(raw: str) -> str:
     return match.group(1) if match else raw
 
 
+def _create_fallback_analysis(appel: AppelOffres) -> dict:
+    """
+    Crée une analyse par défaut quand le LLM échoue.
+    Permet de dégrader proprement au lieu de planter complètement.
+    """
+    return {
+        "resume": f"Analyse automatique non disponible pour l'appel d'offres {appel.reference}. Veuillez consulter manuellement les documents.",
+        "objet_marche": appel.objet or "Objet non communiqué",
+        "prestations_attendues": [],
+        "competences_recherchees": [],
+        "technologies_mentionnees": [],
+        "pieces_administratives": [],
+        "livrables_attendus": [],
+        "contraintes_importantes": [],
+        "criteres_evaluation": [],
+        "delais_importants": [],
+        "points_vigilance": [],
+        "recommandations": [],
+        "budget": None,
+    }
+
+
 def call_llm(appel: AppelOffres, context_text: str) -> dict:
     """
     Point d'entrée de l'inférence.
-    Appelle le LLM et retourne le dict JSON parsé. Lève DceAiRateLimitError ou
-    DceAiError en cas d'échec — à charge de l'appelant de dégrader proprement.
+    Appelle le LLM et retourne le dict JSON parsé. En cas d'échec,
+    retourne une analyse par défaut (fallback) pour éviter un crash complet.
     """
     client = _get_client()
     prompt = _build_prompt(appel, context_text)
@@ -169,41 +192,60 @@ def call_llm(appel: AppelOffres, context_text: str) -> dict:
             max_tokens=settings.dce_llm_max_output_tokens,
         )
     except RateLimitError as exc:
-        # Erreur transitoire de quota, remontée spécifiquement pour une gestion adaptée.
-        raise DceAiRateLimitError(f"Limite de débit GitHub Models atteinte : {exc}") from exc
+        # Erreur transitoire de quota : on retourne un fallback au lieu de lever une exception
+        logging.getLogger(__name__).warning(
+            "[DIAG] Limite de débit atteinte pour AO %s : %s. Utilisation du fallback.",
+            appel.id, exc
+        )
+        return _create_fallback_analysis(appel)
     except (APIError, APIConnectionError) as exc:
-        # Erreur d'infrastructure ou de réseau.
-        raise DceAiError(f"Erreur API GitHub Models : {exc}") from exc
+        # Erreur d'infrastructure ou de réseau : on retourne un fallback
+        logging.getLogger(__name__).warning(
+            "[DIAG] Erreur API pour AO %s : %s. Utilisation du fallback.",
+            appel.id, exc
+        )
+        return _create_fallback_analysis(appel)
     except Exception as exc:  # noqa: BLE001
         # Filet de sécurité ultime : on capture TOUT pour éviter qu'une exception 
         # non prévue (ex: problème de sérialisation interne) ne fasse crasher le serveur.
-        raise DceAiError(f"Erreur inattendue lors de l'appel LLM : {exc}") from exc
+        logging.getLogger(__name__).error(
+            "[DIAG] Erreur inattendue lors de l'appel LLM pour AO %s : %s. Utilisation du fallback.",
+            appel.id, exc
+        )
+        return _create_fallback_analysis(appel)
 
     raw_content = response.choices[0].message.content if response.choices else None
     if not raw_content:
-        raise DceAiError("Réponse LLM vide.")
+        logging.getLogger(__name__).warning(
+            "[DIAG] Réponse LLM vide pour AO %s. Utilisation du fallback.",
+            appel.id
+        )
+        return _create_fallback_analysis(appel)
 
     try:
         # Validation et assainissement des données : on tente de parser le JSON 
         # après avoir appliqué notre heuristique de nettoyage des balises markdown.
         parsed = json.loads(_strip_code_fences(raw_content))
     except json.JSONDecodeError as exc:
-        import logging
         # OBSERVABILITÉ CONTRÔLÉE : En cas d'échec de parsing, on loggue le début 
         # de la réponse brute (500 caractères). Cela suffit généralement à déboguer 
         # un prompt défaillant, tout en évitant de saturer les logs ou la mémoire 
         # avec des réponses LLM potentiellement énormes et malformées.
         logging.getLogger(__name__).error(
-            "[DIAG] Réponse LLM non-JSON pour AO %s. finish_reason=%s. Contenu brut (500 premiers car.) : %r",
+            "[DIAG] Réponse LLM non-JSON pour AO %s. finish_reason=%s. Contenu brut (500 premiers car.) : %r. Utilisation du fallback.",
             appel.id,
             response.choices[0].finish_reason if response.choices else "?",
             raw_content[:500],
         )
-        raise DceAiError(f"Réponse LLM non-JSON : {exc}") from exc
+        return _create_fallback_analysis(appel)
 
     # VÉRIFICATION DE TYPE : On s'assure que la racine du JSON est bien un objet (dict) 
     # et non un tableau ou un scalaire, respectant ainsi le contrat de l'API.
     if not isinstance(parsed, dict):
-        raise DceAiError("Réponse LLM JSON valide mais pas un objet.")
+        logging.getLogger(__name__).warning(
+            "[DIAG] Réponse LLM JSON valide mais pas un objet pour AO %s. Utilisation du fallback.",
+            appel.id
+        )
+        return _create_fallback_analysis(appel)
 
     return parsed

@@ -2,10 +2,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.projet import Projet
-from app.models.analyse_dce import AnalyseDce  # ← AJOUTÉ
+from app.models.analyse_dce import AnalyseDce
+from app.models.historique_evenement import HistoriqueEvenement
 from app.schemas.projet import ProjetCreate, ProjetUpdate, ProjetRead
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/projets", tags=["projets"])
+
+
+class StatutChangeRequest(BaseModel):
+    nouveau_statut: str
 
 
 def _to_projet_read(projet: Projet, db: Session) -> ProjetRead:
@@ -60,3 +66,84 @@ def delete_projet(projet_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Projet introuvable")
     db.delete(projet)
     db.commit()
+
+
+@router.post("/{projet_id}/changer-statut", response_model=ProjetRead)
+def changer_statut_projet(
+    projet_id: int, 
+    data: StatutChangeRequest, 
+    db: Session = Depends(get_db)
+):
+    """Change le statut d'un projet/opportunité et enregistre l'événement dans l'historique."""
+    projet = db.query(Projet).filter(Projet.id == projet_id).first()
+    if not projet:
+        raise HTTPException(status_code=404, detail="Projet introuvable")
+    
+    # Validation des transitions valides
+    transitions_valides = {
+        "interesse": ["en_preparation", "ignore", "abandonne"],
+        "en_preparation": ["pret_a_deposer", "soumis", "ignore", "abandonne"],
+        "pret_a_deposer": ["soumis", "en_preparation", "ignore", "abandonne"],
+        "soumis": ["gagne", "perdu", "en_preparation"],
+        "gagne": ["en_execution"],
+        "en_execution": ["termine", "suspendu"],
+        "perdu": [],
+        "ignore": ["interesse"],
+        "abandonne": ["interesse"],
+        "suspendu": ["en_execution", "termine"],
+        "termine": [],
+    }
+    
+    ancien_statut = projet.statut
+    nouveau_statut = data.nouveau_statut
+    
+    if nouveau_statut not in transitions_valides.get(ancien_statut, []):
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Transition invalide: {ancien_statut} → {nouveau_statut}"
+        )
+    
+    # Mise à jour du statut
+    projet.statut = nouveau_statut
+    db.commit()
+    db.refresh(projet)
+    
+    # Enregistrement automatique dans l'historique
+    evenement = HistoriqueEvenement(
+        projet_id=projet.id,
+        type_evenement="statut_change",
+        titre=f"Statut changé: {ancien_statut} → {nouveau_statut}",
+        description=f"Le statut a été modifié de '{ancien_statut}' à '{nouveau_statut}'",
+        ancien_statut=ancien_statut,
+        nouveau_statut=nouveau_statut,
+    )
+    db.add(evenement)
+    db.commit()
+    
+    return _to_projet_read(projet, db)
+
+
+@router.get("/{projet_id}/historique", response_model=list)
+def get_historique_projet(projet_id: int, db: Session = Depends(get_db)):
+    """Récupère l'historique des événements d'un projet."""
+    projet = db.query(Projet).filter(Projet.id == projet_id).first()
+    if not projet:
+        raise HTTPException(status_code=404, detail="Projet introuvable")
+    
+    evenements = db.query(HistoriqueEvenement).filter(
+        HistoriqueEvenement.projet_id == projet_id
+    ).order_by(HistoriqueEvenement.date_creation.desc()).all()
+    
+    return [
+        {
+            "id": e.id,
+            "type_evenement": e.type_evenement,
+            "titre": e.titre,
+            "description": e.description,
+            "ancien_statut": e.ancien_statut,
+            "nouveau_statut": e.nouveau_statut,
+            "donnees": e.donnees,
+            "date_creation": e.date_creation.isoformat() if e.date_creation else None,
+        }
+        for e in evenements
+    ]

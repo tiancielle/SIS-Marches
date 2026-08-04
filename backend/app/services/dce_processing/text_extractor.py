@@ -83,9 +83,32 @@ def _ocr_page_avec_langue(img_path: str, lang: str) -> str:
     try:
         ocr = _get_paddle_ocr(lang)
         result = ocr.predict(img_path)
+
+        # DIAGNOSTIC 2 : Résultats bruts PaddleOCR
+        logger.info(f"[DIAG-OCR] Image: {os.path.basename(img_path)}, Langue: {lang}")
+        logger.info(f"[DIAG-OCR] Nombre de résultats: {len(result)}")
+
+        if len(result) > 0:
+            first_item = result[0]
+            # Tenter d'accéder aux métadonnées de confiance si disponibles
+            if isinstance(first_item, dict):
+                logger.info(f"[DIAG-OCR] Clés disponibles: {list(first_item.keys())}")
+                if "rec_scores" in first_item:
+                    scores = first_item["rec_scores"]
+                    if scores:
+                        avg_confidence = sum(scores) / len(scores)
+                        logger.info(f"[DIAG-OCR] Confiance moyenne: {avg_confidence:.2f}")
+                        logger.info(f"[DIAG-OCR] Scores: {scores[:5]}...")  # Premiers 5 scores
+
         texts = []
         for item in result:
-            texts.extend(_extract_ocr_result_texts(item))
+            extracted = _extract_ocr_result_texts(item)
+            texts.extend(extracted)
+
+        logger.info(f"[DIAG-OCR] Texte extrait: {len(texts)} blocs, {len(' '.join(texts))} caractères")
+        if texts:
+            logger.info(f"[DIAG-OCR] Aperçu texte: {' '.join(texts[:2])}...")  # Premiers 2 blocs
+
         return "\n".join(texts)
     except Exception as exc:  # noqa: BLE001
         # GESTION D'ERREUR : Dans un traitement par lots, une image corrompue ne doit pas 
@@ -97,18 +120,18 @@ def _ocr_page_avec_langue(img_path: str, lang: str) -> str:
 
 def _ocr_pdf_scanne(path: str, out_path: str) -> tuple[int, Optional[str]]:
     """
-    Repli OCR pour un PDF scanné. 
-    
+    Repli OCR pour un PDF scanné.
+
     STRATÉGIE D'OPTIMISATION (GELÉE EN ATTENTE DE VALIDATION) :
-    Les DCE marocains sont presque toujours mono-langue par document. Tester systématiquement 
-    toutes les langues configurées sur chaque page entraîne une complexité O(N * M). 
-    Cette fonction détecte la langue dominante sur la première page, puis la priorise pour les 
-    pages suivantes, ramenant la complexité effective proche de O(N + M). Un filet de sécurité 
-    conserve la possibilité de tester les autres langues si le résultat est en dessous d'un 
+    Les DCE marocains sont presque toujours mono-langue par document. Tester systématiquement
+    toutes les langues configurées sur chaque page entraîne une complexité O(N * M).
+    Cette fonction détecte la langue dominante sur la première page, puis la priorise pour les
+    pages suivantes, ramenant la complexité effective proche de O(N + M). Un filet de sécurité
+    conserve la possibilité de tester les autres langues si le résultat est en dessous d'un
     seuil de confiance heuristique (SEUIL_SUFFISANT).
     """
     try:
-        # CHOIX TECHNIQUE : PyMuPDF (fitz) est utilisé car c'est la bibliothèque la plus rapide 
+        # CHOIX TECHNIQUE : PyMuPDF (fitz) est utilisé car c'est la bibliothèque la plus rapide
         # et la plus fiable pour le rendu de pages PDF en images (pixmaps) en Python.
         import fitz  # PyMuPDF
     except ImportError as exc:
@@ -117,26 +140,55 @@ def _ocr_pdf_scanne(path: str, out_path: str) -> tuple[int, Optional[str]]:
     langues = settings.ocr_langs.split(",") if settings.ocr_langs else ["fr"]
     langues = [l.strip() for l in langues if l.strip()]
 
-    # HEURISTIQUE : Un seuil de 30 caractères permet d'éviter les "faux positifs" (bruit de fond 
-    # ou artefacts de scan reconnus comme 2-3 lettres). 30 caractères indiquent généralement 
+    # HEURISTIQUE : Un seuil de 30 caractères permet d'éviter les "faux positifs" (bruit de fond
+    # ou artefacts de scan reconnus comme 2-3 lettres). 30 caractères indiquent généralement
     # qu'une ligne ou un paragraphe significatif a été lu avec succès, justifiant l'arrêt des tests.
     SEUIL_SUFFISANT = 30  # nb de caractères au-delà duquel une page est considérée bien reconnue
 
     total_chars = 0
     langue_dominante: Optional[str] = None
 
+    # DIAGNOSTIC 1 : Répertoire pour sauvegarder les images pour inspection
+    debug_img_dir = os.path.join(settings.dce_extracted_storage_path, "debug_ocr_images")
+    os.makedirs(debug_img_dir, exist_ok=True)
+    pdf_name = os.path.splitext(os.path.basename(path))[0]
+    debug_pdf_dir = os.path.join(debug_img_dir, pdf_name)
+    os.makedirs(debug_pdf_dir, exist_ok=True)
+    logger.info(f"[DIAG-DEBUG] Images OCR sauvegardées dans: {debug_pdf_dir}")
+
     try:
         doc = fitz.open(path)
         nb_pages = len(doc)
+
+        # DIAGNOSTIC 1 : Informations sur le PDF source
+        logger.info(f"[DIAG-PDF] Fichier: {os.path.basename(path)}")
+        logger.info(f"[DIAG-PDF] Nombre de pages: {nb_pages}")
+        logger.info(f"[DIAG-PDF] Taille: {os.path.getsize(path) / 1024:.1f} KB")
+
         with tempfile.TemporaryDirectory() as tmp_dir, open(out_path, "w", encoding="utf-8") as out:
             for page_num, page in enumerate(doc, start=1):
-                # CHOIX DE RÉSOLUTION : 200 DPI est le "sweet spot" pour l'OCR. 
-                # 72/96 DPI est trop faible pour une reconnaissance précise des caractères, 
-                # tandis que 300+ DPI ralentit considérablement le rendu et consomme trop de RAM 
+                # CHOIX DE RÉSOLUTION : 200 DPI est le "sweet spot" pour l'OCR.
+                # 72/96 DPI est trop faible pour une reconnaissance précise des caractères,
+                # tandis que 300+ DPI ralentit considérablement le rendu et consomme trop de RAM
                 # pour un gain de précision marginal sur du texte administratif standard.
                 pix = page.get_pixmap(dpi=200)
                 page_img_path = os.path.join(tmp_dir, f"page_{page_num}.png")
                 pix.save(page_img_path)
+
+                # DIAGNOSTIC 1 : Sauvegarder une copie pour inspection humaine
+                debug_img_path = os.path.join(debug_pdf_dir, f"page_{page_num}_dpi200.png")
+                pix.save(debug_img_path)
+
+                # DIAGNOSTIC 1 : Qualité de l'image générée
+                img_size = os.path.getsize(page_img_path)
+                img_dims = (pix.width, pix.height)
+                logger.info(f"[DIAG-IMG] Page {page_num}: {img_dims[0]}x{img_dims[1]} px, {img_size / 1024:.1f} KB, DPI: 200")
+                logger.info(f"[DIAG-IMG] Image temporaire: {page_img_path}")
+                logger.info(f"[DIAG-IMG] Image debug: {debug_img_path}")
+
+                # DIAGNOSTIC 3 : Suivi bilingue détaillé
+                logger.info(f"[DIAG-BILINGUE] === Page {page_num}/{nb_pages} ===")
+                logger.info(f"[DIAG-BILINGUE] Langue dominante actuelle: {langue_dominante or 'Non détectée'}")
 
                 # Ordre de langues à tester pour cette page : la langue dominante
                 # détectée en premier si on la connaît déjà, sinon l'ordre par défaut.
@@ -145,29 +197,40 @@ def _ocr_pdf_scanne(path: str, out_path: str) -> tuple[int, Optional[str]]:
                 else:
                     ordre = langues
 
-                logger.debug(f"[DIAG] OCR page {page_num}/{nb_pages} (ordre langues : {ordre})...")
+                logger.info(f"[DIAG-BILINGUE] Ordre des langues à tester: {ordre}")
 
                 meilleur_texte = ""
                 meilleure_langue = None
                 for lang in ordre:
+                    logger.info(f"[DIAG-BILINGUE] → Test langue: {lang}")
                     texte = _ocr_page_avec_langue(page_img_path, lang)
+                    logger.info(f"[DIAG-BILINGUE] ← Résultat {lang}: {len(texte)} caractères")
+
                     if len(texte) > len(meilleur_texte):
                         meilleur_texte = texte
                         meilleure_langue = lang
                     if len(meilleur_texte) >= SEUIL_SUFFISANT:
+                        logger.info(f"[DIAG-BILINGUE] Seuil {SEUIL_SUFFISANT} atteint, arrêt des tests")
                         break  # résultat déjà exploitable, pas besoin de tester les autres langues
 
                 # Dès la première page qui donne un résultat exploitable, on fige la
                 # langue dominante pour accélérer toutes les pages suivantes.
                 if langue_dominante is None and meilleure_langue and len(meilleur_texte) >= SEUIL_SUFFISANT:
                     langue_dominante = meilleure_langue
-                    logger.info(f"[DIAG] Langue dominante détectée : {langue_dominante} (dès la page {page_num}).")
+                    logger.info(f"[DIAG-BILINGUE] Langue dominante FIGÉE: {langue_dominante} (dès la page {page_num})")
+
+                logger.info(f"[DIAG-BILINGUE] Meilleur résultat page {page_num}: {meilleure_langue} ({len(meilleur_texte)} caractères)")
 
                 if meilleur_texte:
-                    logger.debug(f"[DIAG] Page {page_num} : meilleure langue = {meilleure_langue} ({len(meilleur_texte)} caractères).")
                     out.write(meilleur_texte)
                     out.write("\n\n")
                     total_chars += len(meilleur_texte)
+
+                    # DIAGNOSTIC 4 : Vérification texte écrit
+                    logger.info(f"[DIAG-ECRITURE] Page {page_num}: {len(meilleur_texte)} caractères écrits dans fichier")
+                else:
+                    logger.warning(f"[DIAG-ECRITURE] Page {page_num}: AUCUN texte extrait!")
+
         doc.close()
     except Exception as exc:  # noqa: BLE001
         return 0, f"Erreur pendant l'OCR : {exc}"
@@ -444,7 +507,7 @@ def _extract_xlsx(path: str, out_path: str) -> tuple[int, Optional[str]]:
 def extract_text(extracted_file: ExtractedFile, output_dir: str) -> ExtractionResult:
     """
     Point d'entrée principal du pipeline d'extraction.
-    Agit comme un routeur qui dispatche vers la méthode adaptée selon l'extension, 
+    Agit comme un routeur qui dispatche vers la méthode adaptée selon l'extension,
     et gère la logique spécifique de repli OCR uniquement pour les PDFs.
     """
     extension = extracted_file.extension
@@ -465,9 +528,9 @@ def extract_text(extracted_file: ExtractedFile, output_dir: str) -> ExtractionRe
         nb_chars, erreur = _extract_pdf(extracted_file.absolute_path, out_path)
         if erreur:
             return ExtractionResult(None, 0, "echec", erreur)
-        
-        # LOGIQUE DE BASCULE OCR : Si l'extraction native ne renvoie aucun caractère, 
-        # on en déduit que le PDF est probablement une image scannée. On déclenche alors 
+
+        # LOGIQUE DE BASCULE OCR : Si l'extraction native ne renvoie aucun caractère,
+        # on en déduit que le PDF est probablement une image scannée. On déclenche alors
         # le pipeline OCR coûteux uniquement si nécessaire, optimisant ainsi les ressources globales.
         if nb_chars == 0:
             logger.info(f"[DIAG] Aucun texte natif — tentative OCR (PaddleOCR) pour {extracted_file.nom_fichier}.")
@@ -482,6 +545,27 @@ def extract_text(extracted_file: ExtractedFile, output_dir: str) -> ExtractionRe
                     out_path, 0, "non_supporte",
                     "Aucun texte extrait, même après OCR (image illisible, page blanche, ou qualité de scan trop faible).",
                 )
+
+            # DIAGNOSTIC 4 & 5 : Vérification texte final envoyé au LLM
+            logger.info(f"[DIAG-FINAL] === VERIFICATION TEXTE FINAL ===")
+            logger.info(f"[DIAG-FINAL] Fichier: {out_path}")
+            logger.info(f"[DIAG-FINAL] Caractères totaux: {nb_chars_ocr}")
+
+            try:
+                with open(out_path, "r", encoding="utf-8") as f:
+                    final_text = f.read()
+                    lines = final_text.split("\n")
+                    logger.info(f"[DIAG-FINAL] Nombre de lignes: {len(lines)}")
+                    logger.info(f"[DIAG-FINAL] Aperçu (500 premiers caractères): {final_text[:500]}")
+
+                    # Calculer la densité de texte (caractères par ligne moyenne)
+                    non_empty_lines = [l for l in lines if l.strip()]
+                    if non_empty_lines:
+                        avg_line_length = sum(len(l) for l in non_empty_lines) / len(non_empty_lines)
+                        logger.info(f"[DIAG-FINAL] Longueur moyenne ligne: {avg_line_length:.1f} caractères")
+            except Exception as e:
+                logger.error(f"[DIAG-FINAL] Erreur lecture fichier final: {e}")
+
             return ExtractionResult(out_path, nb_chars_ocr, "succes", None)
         return ExtractionResult(out_path, nb_chars, "succes", None)
 

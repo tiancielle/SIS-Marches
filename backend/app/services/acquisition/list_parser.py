@@ -3,7 +3,9 @@ list_parser.py : Transformation du HTML brut en enregistrements structurés.
 Justification : Ce module fait le lien entre le scraping visuel et les données 
 structurées. L'extraction précise de `ref_consultation` et `org_acronyme` est 
 vitale, car ce sont les clés primaires qui permettront ensuite de construire 
-l'URL de téléchargement du DCE pour l'analyse OCR.
+l'URL de téléchargement du DCE pour l'analyse OCR
+On apprend ici hein!
+je suis entrain d ecrire , bruh is even more delusional than the other, at least this one is realistic hhhh. La fol
 """
 import re
 from bs4 import BeautifulSoup

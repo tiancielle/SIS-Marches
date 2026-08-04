@@ -27,7 +27,7 @@ class Projet(Base):
     chef_id = Column(Integer, ForeignKey("equipe.id"), nullable=True)  # vraie FK vers Equipe
 
     # Cycle de vie V2 complet (remplace l'ancien "actif"/"termine")
-    # interesse | en_preparation | soumis | gagne | perdu | abandonne | en_execution | termine
+    # interesse | en_preparation | pret_a_deposer | soumis | gagne | perdu | abandonne | en_execution | termine | suspendu | ignore
     statut = Column(String, nullable=False, default="interesse")
 
     date_soumission = Column(Date, nullable=True)

@@ -1,8 +1,8 @@
 import React, { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
-  LayoutDashboard, ChevronRight, FileSearch, Sparkles, FolderKanban,
-  FileText, ClipboardList, Users, Users2, Receipt, Wallet, Settings, LogOut,
+  LayoutDashboard, ChevronRight, FileSearch, Briefcase, FolderKanban,
+  FileText, Users, Wallet, Settings, LogOut,
 } from "lucide-react";
 import { C, FONT } from "../../styles/theme";
 
@@ -13,16 +13,32 @@ const GROUPS = [
     icon: FileSearch,
     items: [
       { to: "/marches", label: "Marchés publics" },
-      { label: "Alertes IA", disabled: true },
     ],
   },
   {
-    id: "projets",
-    label: "PROJECTS",
+    id: "opportunites",
+    label: "OPPORTUNITÉS",
+    icon: Briefcase,
+    items: [
+      { to: "/opportunites", label: "Opportunités actives" },
+    ],
+  },
+  {
+    id: "suivi",
+    label: "SUIVI",
     icon: FolderKanban,
     items: [
-      { to: "/projects", label: "Tous les projets" },
+      { to: "/projets", label: "Projets" },
       { to: "/contrats", label: "Contrats" },
+    ],
+  },
+  {
+    id: "archives",
+    label: "ARCHIVES",
+    icon: FileText,
+    items: [
+      { to: "/opportunites/archives", label: "Opportunités expirées" },
+      { to: "/opportunites/rejetes", label: "Marchés perdus" },
     ],
   },
   {

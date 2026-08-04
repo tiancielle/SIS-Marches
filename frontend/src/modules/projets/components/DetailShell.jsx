@@ -1,60 +1,52 @@
-import React, { useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import React from "react";
+import { Link } from "react-router-dom";
 import { ChevronRight, Pencil, Trash2, MapPin, Wallet, CalendarRange, User, Users } from "lucide-react";
-import { useData } from "../../../store/DataContext";
 import { fmt, fmtDate } from "../../../lib/mockData";
 import Badge from "../../../components/ui/Badge";
 import ConfirmModal from "../../../components/ui/ConfirmModal";
 import { C, FONT } from "../../../styles/theme";
-import ProjectInfoTab from "./tabs/ProjectInfoTab";
-import ProjectInfoEdit from "./tabs/ProjectInfoEdit";
-import ProjectSubsTab from "./tabs/ProjectSubsTab";
-import ProjectDCETab from "./tabs/ProjectDCETab";
-import ProjectEquipeTab from "./tabs/ProjectEquipeTab";
-import ProjectDocsTab from "./tabs/ProjectDocsTab";
-import ProjectCandidatureTab from "./tabs/ProjectCandidatureTab";
-import ProjectHistoryTab from "./tabs/ProjectHistoryTab";
 
-const TABS = [
-  { key: "infos", label: "Infos générales" },
-  { key: "subs", label: "Sous-traitants" },
-  { key: "dce", label: "DCE" },
-  { key: "equipe", label: "Équipe" },
-  { key: "docs", label: "Documents" },
-  { key: "candidature", label: "Dossier de candidature" },
-  { key: "historique", label: "Historique" },
-];
+export default function DetailShell({
+  project,
+  tabs,
+  backTo,
+  backLabel,
+  deleteRedirectTo,
+  statutOptions,
+  editing,
+  onEdit,
+  onDelete,
+  onSave,
+  onStatutChange,
+  renderTab,
+}) {
+  const [tab, setTab] = React.useState("infos");
+  const [confirmDelete, setConfirmDelete] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
+  const [currentStatut, setCurrentStatut] = React.useState(project.statut);
 
-export default function ProjectDetail() {
-  const { id } = useParams();
-  const navigate = useNavigate();
-  const { projects, updateProject, deleteProject, getEquipeForProject } = useData();
-  const [tab, setTab] = useState("infos");
-  const [editing, setEditing] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const equipeNames = project.equipeNames || "Aucun membre affecté";
 
-  const project = projects.find((p) => String(p.id) === id);
-  if (!project) return <div style={{ padding: 32, color: C.faint }}>Projet introuvable.</div>;
-
-  const equipeNames = getEquipeForProject(project.id).map((m) => m.nom).join(", ") || "Aucun membre affecté";
-
-  const startEditing = () => { setTab("infos"); setEditing(true); };
-
-  const handleSave = async (data) => {
-    await updateProject(project.id, data);
-    setEditing(false);
+  const handleStatutChange = async (newStatut) => {
+    setCurrentStatut(newStatut);
+    if (onStatutChange) {
+      await onStatutChange(newStatut);
+    }
   };
 
   const handleDelete = async () => {
     setDeleting(true);
     try {
-      await deleteProject(project.id);
-      navigate("/projects");
+      if (onDelete) await onDelete();
     } finally {
       setDeleting(false);
     }
   };
+
+  // Mettre à jour currentStatut quand project.statut change
+  React.useEffect(() => {
+    setCurrentStatut(project.statut);
+  }, [project.statut]);
 
   return (
     <div>
@@ -62,7 +54,7 @@ export default function ProjectDetail() {
 
       <div style={{ padding: "18px 32px 0" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FONT, fontSize: 12.5, color: C.faint, marginBottom: 12 }}>
-          <Link to="/projects" style={{ color: C.faint, textDecoration: "none" }}>Projets</Link>
+          <Link to={backTo} style={{ color: C.faint, textDecoration: "none" }}>{backLabel}</Link>
           <ChevronRight size={12} />
           <span style={{ color: C.ink, fontWeight: 600 }}>{project.nom}</span>
         </div>
@@ -70,12 +62,46 @@ export default function ProjectDetail() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <h1 style={{ fontFamily: FONT, fontSize: 21, fontWeight: 700, color: C.ink, margin: 0 }}>{project.nom}</h1>
-            <div style={{ marginTop: 6 }}><Badge status={project.statut} /></div>
+            <div style={{ marginTop: 6 }}><Badge status={currentStatut} /></div>
           </div>
 
           {!editing && (
-            <div style={{ display: "flex", gap: 8 }}>
-              <button style={iconBtnStyle} onClick={startEditing}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              {statutOptions && statutOptions.length > 0 && (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {statutOptions.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => handleStatutChange(opt.value)}
+                      disabled={currentStatut === opt.value}
+                      style={{
+                        fontFamily: FONT, fontSize: 12.5, fontWeight: 500,
+                        padding: "6px 12px", borderRadius: 6, border: "none", cursor: "pointer",
+                        background: currentStatut === opt.value ? C.accent : C.card,
+                        color: currentStatut === opt.value ? "#fff" : C.ink,
+                        border: currentStatut === opt.value ? "none" : `1px solid ${C.line}`,
+                        opacity: currentStatut === opt.value ? 1 : 0.8,
+                        transition: "all 0.15s ease",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (currentStatut !== opt.value) {
+                          e.target.style.background = C.paper;
+                          e.target.style.borderColor = C.accent;
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (currentStatut !== opt.value) {
+                          e.target.style.background = C.card;
+                          e.target.style.borderColor = C.line;
+                        }
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button style={iconBtnStyle} onClick={onEdit}>
                 <Pencil size={14} /> Modifier
               </button>
               <button style={{ ...iconBtnStyle, color: C.danger }} onClick={() => setConfirmDelete(true)}>
@@ -95,7 +121,7 @@ export default function ProjectDetail() {
 
         {!editing && (
           <div style={{ display: "flex", gap: 4, marginTop: 18, flexWrap: "wrap", background: C.card, border: `1px solid ${C.line}`, borderRadius: C.radius, padding: 4, width: "fit-content" }}>
-            {TABS.map((t) => (
+            {tabs.map((t) => (
               <button
                 key={t.key}
                 onClick={() => setTab(t.key)}
@@ -118,19 +144,7 @@ export default function ProjectDetail() {
       <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 20 }} />
 
       <div key={editing ? "edit" : tab} style={{ padding: 32, animation: "fadeIn 0.18s ease" }}>
-        {editing ? (
-          <ProjectInfoEdit project={project} onSave={handleSave} onCancel={() => setEditing(false)} />
-        ) : (
-          <>
-            {tab === "infos" && <ProjectInfoTab project={project} />}
-            {tab === "subs" && <ProjectSubsTab projectId={project.id} />}
-            {tab === "dce" && <ProjectDCETab project={project} />}
-            {tab === "equipe" && <ProjectEquipeTab projectId={project.id} />}
-            {tab === "docs" && <ProjectDocsTab project={project} />}
-            {tab === "candidature" && <ProjectCandidatureTab project={project} />}
-            {tab === "historique" && <ProjectHistoryTab projectId={project.id} />}
-          </>
-        )}
+        {renderTab(tab)}
       </div>
 
       {confirmDelete && (

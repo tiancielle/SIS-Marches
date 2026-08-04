@@ -20,7 +20,7 @@ export default function FacturesPage() {
           ]}
           relatedLinks={[
             { label: "Voir les contrats", to: "/contrats" },
-            { label: "Voir les projets", to: "/projects" },
+            { label: "Voir les projets", to: "/projets" },
           ]}
         />
       </div>

@@ -57,6 +57,31 @@ export const SEED_EQUIPE = [
 ];
 
 export const fmt = (n) => new Intl.NumberFormat("fr-FR").format(Math.round(n)) + " DH";
+export const formatMontant = (n) => {
+  if (!n) return "0 DH";
+  
+  // Format avec suffixes M/k pour les grands montants
+  if (n >= 1_000_000) {
+    const millions = n / 1_000_000;
+    const formatted = millions % 1 === 0 
+      ? Math.round(millions) 
+      : millions.toFixed(1).replace('.', ',');
+    return `${formatted} M DH`;
+  }
+  
+  if (n >= 1_000) {
+    const milliers = n / 1_000;
+    const formatted = milliers % 1 === 0 
+      ? Math.round(milliers) 
+      : milliers.toFixed(1).replace('.', ',');
+    return `${formatted} k DH`;
+  }
+  
+  return new Intl.NumberFormat('fr-MA', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Math.round(n)) + " DH";
+};
 export const fmtDate = (d) => {
   if (!d) return "Non communiqué";
   const date = new Date(d);

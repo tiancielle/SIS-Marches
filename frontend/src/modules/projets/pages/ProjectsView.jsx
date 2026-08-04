@@ -9,7 +9,7 @@ import StatCard from "../../../components/ui/StatCard";
 import ProjectForm from "./ProjectForm";
 import { useData } from "../../../store/DataContext";
 import { fmt, fmtDate } from "../../../lib/mockData";
-import { C, FONT } from "../../../styles/theme";
+import { COLORS, TYPOGRAPHY, SPACING, BORDERS } from "../../../styles/designSystem";
 
 function initials(name) {
   if (!name) return "—";
@@ -25,11 +25,16 @@ export default function ProjectsView() {
   const [sort, setSort] = useState({ key: "nom", dir: "asc" });
   const [showForm, setShowForm] = useState(false);
 
-  const chefs = useMemo(() => [...new Set(projects.map((p) => p.chef))].sort(), [projects]);
-  const actifs = useMemo(() => projects.filter((p) => p.statut === "actif"), [projects]);
+  // Filtrer uniquement les projets réels (workflow_state = "projet")
+  const realProjects = useMemo(() => 
+    projects.filter(p => p.workflow_state === "projet" || (p.workflow_state === undefined && p.statut === "actif")), 
+    [projects]
+  );
+
+  const chefs = useMemo(() => [...new Set(realProjects.map((p) => p.chef))].sort(), [realProjects]);
+  const actifs = useMemo(() => realProjects.filter((p) => p.statut === "actif" || p.statut === "en_execution"), [realProjects]);
   const countActif = actifs.length;
-  const countInteresse = projects.filter((p) => p.statut === "interesse").length;
-  const countTermine = projects.filter((p) => p.statut === "termine").length;
+  const countTermine = realProjects.filter((p) => p.statut === "termine").length;
 
   // KPI dérivés du même state que la liste — aucune nouvelle donnée, juste une vue résumée
   // pour retrouver l'esprit "cockpit" du Dashboard plutôt qu'une simple table brute.
@@ -40,13 +45,12 @@ export default function ProjectsView() {
   const echeancesProches = actifs.filter((p) => p.fin && new Date(p.fin) >= now && new Date(p.fin) <= in30Days).length;
 
   const TABS = [
-    { key: "interesse", label: "Nouveaux", count: countInteresse },
     { key: "actif", label: "Actifs", count: countActif },
     { key: "termine", label: "Historique", count: countTermine },
   ];
 
   const rows = useMemo(() => {
-    let list = projects.filter((p) => p.statut === tab);
+    let list = realProjects.filter((p) => p.statut === tab);
     if (chefFilter) list = list.filter((p) => p.chef === chefFilter);
     if (query) list = list.filter((p) => p.nom.toLowerCase().includes(query.toLowerCase()));
     list = [...list].sort((a, b) => {
@@ -54,7 +58,7 @@ export default function ProjectsView() {
       return sort.dir === "asc" ? cmp : -cmp;
     });
     return list;
-  }, [projects, tab, query, chefFilter, sort]);
+  }, [realProjects, tab, query, chefFilter, sort]);
 
   const toggleSort = (key) => {
     setSort((prev) => (prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));

@@ -7,6 +7,7 @@ import { fetchContrats, createContrat, updateContrat, deleteContrat } from "../s
 import { fetchDCEList, createDCE, updateDCE, deleteDCE } from "../services/dce";
 import { fetchEquipe, createEquipeMembre, updateEquipeMembre as updateEquipeMembreApi, deleteEquipeMembre } from "../services/equipe";
 import { fetchProjetEquipe, assignEquipeApi, removeProjetEquipeApi } from "../services/projetEquipe";
+import { changerStatutProjet, getHistoriqueProjet } from "../services/workflow";
 import { SEED_MARCHES, SEED_ANALYSES } from "../lib/mockData";
 
 const DataContext = createContext(null);
@@ -271,6 +272,19 @@ export function DataProvider({ children }) {
 
   const getHistoryForProject = (projectId) => historyByProject[projectId] || [];
 
+  // --- 11) Workflow transitions ---
+  const changeProjectStatut = async (projetId, nouveauStatut) => {
+    const updated = await changerStatutProjet(projetId, nouveauStatut);
+    setProjects((prev) => prev.map((p) => (p.id === projetId ? updated : p)));
+    return updated;
+  };
+
+  const fetchHistorique = async (projetId) => {
+    const historique = await getHistoriqueProjet(projetId);
+    setHistoryByProject((prev) => ({ ...prev, [projetId]: historique }));
+    return historique;
+  };
+
   return (
     <DataContext.Provider
       value={{
@@ -285,6 +299,7 @@ export function DataProvider({ children }) {
         marches, addMarche, ignoreMarche, analyserMarche, getAnalyseForMarche, selectMarche,
         analyses,
         subProjectCount, projectsForSub, getHistoryForProject,
+        changeProjectStatut, fetchHistorique,
         loading, error,
       }}
     >

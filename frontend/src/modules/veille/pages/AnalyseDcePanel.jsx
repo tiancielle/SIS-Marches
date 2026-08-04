@@ -126,6 +126,8 @@ export default function AnalyseDcePanel({ appelOffresId, urlCps, readOnly = fals
   const [docsLoading, setDocsLoading] = useState(false);
 
   const pollRef = useRef(null);
+  const pollCountRef = useRef(0);
+  const MAX_POLLS = 60; // 60 polls * 4s = 4 minutes max
 
   async function checkOnce() {
     try {
@@ -141,6 +143,12 @@ export default function AnalyseDcePanel({ appelOffresId, urlCps, readOnly = fals
         stopPolling();
       } else {
         setPhase("polling");
+        pollCountRef.current += 1;
+        if (pollCountRef.current >= MAX_POLLS) {
+          stopPolling();
+          setError("L'analyse prend trop de temps. Veuillez réessayer plus tard.");
+          setPhase("error");
+        }
       }
     } catch (e) {
       setError(e.message);
@@ -159,6 +167,7 @@ export default function AnalyseDcePanel({ appelOffresId, urlCps, readOnly = fals
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
+    pollCountRef.current = 0; // Reset counter when stopping
   }
 
   useEffect(() => {
@@ -177,6 +186,7 @@ export default function AnalyseDcePanel({ appelOffresId, urlCps, readOnly = fals
   async function handleLancer() {
     setTriggering(true);
     setError(null);
+    pollCountRef.current = 0; // Reset counter
     try {
       await traiterDce(appelOffresId);
       await checkOnce();
@@ -290,7 +300,7 @@ export default function AnalyseDcePanel({ appelOffresId, urlCps, readOnly = fals
 
           {analyse.statut === "partielle" && (
             <p style={{ fontFamily: FONT, fontSize: 13, color: "#92400E", background: "#FEF3C7", borderRadius: 8, padding: "12px 14px", margin: "0 0 20px" }}>
-              Certains documents n'ont pas pu être exploités (ex: PDF scannés).{" "}
+              {analyse.erreur || "Certains documents n'ont pas pu être exploités (ex: PDF scannés)."}{" "}
               <button onClick={openDocuments} style={{ ...linkBtnSm, color: "#92400E", textDecoration: "underline" }}>
                 Voir le détail par document
               </button>

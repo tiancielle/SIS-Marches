@@ -384,7 +384,7 @@ export default function MarchesView() {
         <InteresseModal
           appel={interesseAppel}
           onClose={() => setInteresseAppel(null)}
-          onSuccess={(projet) => navigate(`/projects/${projet.id}`)}
+          onSuccess={(projet) => navigate(`/opportunites/${projet.id}`)}
         />
       )}
     </div>

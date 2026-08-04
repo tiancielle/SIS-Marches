@@ -264,7 +264,7 @@ export default function MarcheDetail() {
         <InteresseModal 
           appel={appel} 
           onClose={() => setInteresseOpen(false)}
-          onSuccess={(projet) => navigate(`/projects/${projet.id}`)} 
+          onSuccess={(projet) => navigate(`/opportunites/${projet.id}`)} 
         />
       )}
     </div>

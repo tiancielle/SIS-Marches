@@ -13,6 +13,7 @@ class ProjetBase(BaseModel):
     debut: Optional[date] = None
     fin: Optional[date] = None
     statut: str = "interesse"
+    workflow_state: str = "opportunite"  # ← AJOUTÉ
     chef: Optional[str] = None
     chef_id: Optional[int] = None
     appel_offres_id: Optional[int] = None

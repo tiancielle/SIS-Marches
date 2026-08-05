@@ -1,13 +1,15 @@
 // Logique workflow - remplace phase.js
 // HYPOTHÈSE : basée sur les statuts existants, enrichie avec workflow_state
 
-export const WORKFLOW_STATES = ["opportunite", "projet"];
+export const WORKFLOW_STATES = ["opportunite", "projet", "archive"];
 
-export const OPPORTUNITE_STATUTS = ["interesse", "en_preparation", "soumis", "perdu", "abandonne", "gagne"];
-export const PROJET_STATUTS = ["en_execution", "actif", "suspendu", "termine"];
+export const OPPORTUNITE_STATUTS = ["interesse", "en_preparation", "pret_a_deposer", "soumis"];
+export const PROJET_STATUTS = ["a_demarrer", "en_execution", "actif", "suspendu", "termine"];
+export const ARCHIVE_STATUTS = ["perdu", "abandonne", "ignore"];
 
 export function getWorkflowState(statut) {
   if (PROJET_STATUTS.includes(statut)) return "projet";
+  if (ARCHIVE_STATUTS.includes(statut)) return "archive";
   return "opportunite";
 }
 

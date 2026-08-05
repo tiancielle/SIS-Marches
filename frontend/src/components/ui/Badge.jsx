@@ -4,7 +4,6 @@ import { C, FONT } from "../../styles/theme";
 
 const MAP = {
   actif: { label: "Actif", color: C.success },
-  termine: { label: "Terminé", color: C.mute },
   brouillon: { label: "Brouillon", color: C.faint },
   nouveau: { label: "Nouveau", color: C.accent },
   analyse: { label: "Analysé", color: C.success },
@@ -23,7 +22,10 @@ const MAP = {
   gagne: { label: "Gagné", color: C.success, bg: "#EAF2E7" },
   perdu: { label: "Perdu", color: C.danger, bg: "#FBEAE9" },
   abandonne: { label: "Abandonné", color: C.faint, bg: C.paper },
+  a_demarrer: { label: "À démarrer", color: "#8A6A1F", bg: "#F3E8D0" },
   en_execution: { label: "En exécution", color: C.success, bg: "#EAF2E7" },
+  suspendu: { label: "Suspendu", color: C.warning, bg: "#FBF1E1" },
+  termine: { label: "Terminé", color: C.mute, bg: C.paper },
 };
 
 export default function Badge({ status }) {

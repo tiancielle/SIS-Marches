@@ -88,14 +88,8 @@ export default function ProjetDetailView() {
   };
 
   const handleStatutChange = async (newStatut) => {
-    // Si c'est une opportunité et qu'on veut la convertir en projet (après avoir gagné)
-    if (newStatut === "gagne" && workflowState === "opportunite") {
-      if (window.confirm("Convertir cette opportunité en projet ?\n\nNote: Le statut passera à 'Gagnée'. Vous pourrez ensuite le passer en 'En exécution' dans la vue Projets.")) {
-        await changeProjectStatut(project.id, "gagne");
-        navigate(`/projets/${project.id}`);
-      }
-    } else if (newStatut === "interesse" && (project.statut === "ignore" || project.statut === "abandonne")) {
-      // Réactivation d'un projet ignoré/abandonné
+    // Réactivation d'un projet ignoré/abandonné
+    if (newStatut === "interesse" && (project.statut === "ignore" || project.statut === "abandonne")) {
       await changeProjectStatut(project.id, "interesse");
     } else {
       await changeProjectStatut(project.id, newStatut);

@@ -9,7 +9,7 @@ import StatCard from "../../../components/ui/StatCard";
 import ProjectForm from "./ProjectForm";
 import { useData } from "../../../store/DataContext";
 import { fmt, fmtDate } from "../../../lib/mockData";
-import { COLORS, TYPOGRAPHY, SPACING, BORDERS } from "../../../styles/designSystem";
+import { C, FONT } from "../../../styles/theme";
 
 function initials(name) {
   if (!name) return "—";
@@ -32,25 +32,46 @@ export default function ProjectsView() {
   );
 
   const chefs = useMemo(() => [...new Set(realProjects.map((p) => p.chef))].sort(), [realProjects]);
-  const actifs = useMemo(() => realProjects.filter((p) => p.statut === "actif" || p.statut === "en_execution"), [realProjects]);
-  const countActif = actifs.length;
-  const countTermine = realProjects.filter((p) => p.statut === "termine").length;
+  
+  // Compteurs pour les nouveaux onglets
+  const countADemarrer = realProjects.filter((p) => p.statut === "a_demarrer").length;
+  const countEnCours = realProjects.filter((p) => p.statut === "en_execution" || p.statut === "actif").length;
+  const countSuspendus = realProjects.filter((p) => p.statut === "suspendu").length;
+  const countTermines = realProjects.filter((p) => p.statut === "termine").length;
+  const countTous = realProjects.length;
 
   // KPI dérivés du même state que la liste — aucune nouvelle donnée, juste une vue résumée
   // pour retrouver l'esprit "cockpit" du Dashboard plutôt qu'une simple table brute.
-  const budgetEngageTotal = actifs.reduce((sum, p) => sum + (p.budget_engage || 0), 0);
+  const enCoursProjects = realProjects.filter((p) => p.statut === "en_execution" || p.statut === "actif");
+  const budgetEngageTotal = enCoursProjects.reduce((sum, p) => sum + (p.budget_engage || 0), 0);
   const in30Days = new Date();
   in30Days.setDate(in30Days.getDate() + 30);
   const now = new Date();
-  const echeancesProches = actifs.filter((p) => p.fin && new Date(p.fin) >= now && new Date(p.fin) <= in30Days).length;
+  const echeancesProches = enCoursProjects.filter((p) => p.fin && new Date(p.fin) >= now && new Date(p.fin) <= in30Days).length;
 
   const TABS = [
-    { key: "actif", label: "Actifs", count: countActif },
-    { key: "termine", label: "Historique", count: countTermine },
+    { key: "tous", label: "Tous", count: countTous },
+    { key: "a_demarrer", label: "À démarrer", count: countADemarrer },
+    { key: "en_cours", label: "En cours", count: countEnCours },
+    { key: "suspendus", label: "Suspendus", count: countSuspendus },
+    { key: "termines", label: "Terminés", count: countTermines },
   ];
 
   const rows = useMemo(() => {
-    let list = realProjects.filter((p) => p.statut === tab);
+    let list = realProjects;
+    
+    // Filtrage par onglet
+    if (tab === "a_demarrer") {
+      list = list.filter((p) => p.statut === "a_demarrer");
+    } else if (tab === "en_cours") {
+      list = list.filter((p) => p.statut === "en_execution" || p.statut === "actif");
+    } else if (tab === "suspendus") {
+      list = list.filter((p) => p.statut === "suspendu");
+    } else if (tab === "termines") {
+      list = list.filter((p) => p.statut === "termine");
+    }
+    // "tous" ne filtre pas par statut
+    
     if (chefFilter) list = list.filter((p) => p.chef === chefFilter);
     if (query) list = list.filter((p) => p.nom.toLowerCase().includes(query.toLowerCase()));
     list = [...list].sort((a, b) => {
@@ -79,7 +100,7 @@ export default function ProjectsView() {
       render: (r) => (
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{
-            width: 24, height: 24, borderRadius: "50%", background: C.accentLt, color: C.accent,
+            width: 24, height: 24, borderRadius: "50%", background: COLORS.accentLight, color: COLORS.accent,
             display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
             fontFamily: FONT, fontSize: 10, fontWeight: 700,
           }}>
@@ -95,36 +116,32 @@ export default function ProjectsView() {
   ];
 
   const emptyMessage = query
-    ? `Aucun projet ${tab === "actif" ? "actif" : "de l'historique"} ne correspond à « ${query} »`
+    ? `Aucun projet ne correspond à « ${query} »`
     : chefFilter
-    ? `Aucun projet ${tab === "actif" ? "actif" : "terminé"} pour ${chefFilter}`
+    ? `Aucun projet pour ${chefFilter}`
     : "Aucun projet dans cette catégorie";
 
   return (
     <div>
       <Header
         title="Projets"
-        subtitle={`${countActif} actif${countActif > 1 ? "s" : ""} · ${countTermine} dans l'historique`}
+        subtitle={`${countEnCours} en cours · ${countADemarrer} à démarrer · ${countSuspendus} suspendus · ${countTermines} terminés`}
         searchValue={query}
         onSearchChange={setQuery}
         actionLabel="Nouveau projet"
         onAction={() => setShowForm(true)}
       />
 
-      <div style={{ padding: "20px 32px", background: C.paper }}>
+      <div style={{ padding: "20px 32px", background: COLORS.background }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 14, marginBottom: 20 }}>
-          <StatCard label="Projets actifs" value={countActif} icon={FolderKanban} subtext={`${countTermine} terminés au total`} />
-          <StatCard label="Budget engagé" value={fmt(budgetEngageTotal)} icon={Wallet} subtext="sur les projets actifs" />
-          <StatCard
-            label="Échéances 30 jours" value={echeancesProches} icon={CalendarClock}
-            subtext={echeancesProches > 0 ? "livraisons à surveiller" : "aucune livraison proche"}
-            tone={echeancesProches > 0 ? "warning" : "neutral"}
-          />
+          <StatCard label="Projets en cours" value={countEnCours} icon={FolderKanban} subtext={`${countTermines} terminés au total`} />
+          <StatCard label="À démarrer" value={countADemarrer} icon={CalendarClock} subtext="projets gagnés en attente" />
+          <StatCard label="Budget engagé" value={fmt(budgetEngageTotal)} icon={Wallet} subtext="sur les projets en cours" />
           <StatCard label="Chefs de projet" value={chefs.length} icon={Users2} subtext="mobilisés actuellement" />
         </div>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
-          <div style={{ display: "flex", gap: 4, background: C.card, border: `1px solid ${C.line}`, borderRadius: C.radius, padding: 4 }}>
+          <div style={{ display: "flex", gap: 4, background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: BORDERS.radius.md, padding: 4 }}>
             {TABS.map((t) => (
               <button
                 key={t.key}
@@ -132,8 +149,8 @@ export default function ProjectsView() {
                 style={{
                   fontFamily: FONT, fontSize: 13.5, fontWeight: 600, padding: "7px 14px",
                   borderRadius: 8, border: "none", cursor: "pointer",
-                  color: tab === t.key ? "#fff" : C.mute,
-                  background: tab === t.key ? C.accent : "transparent",
+                  color: tab === t.key ? "#fff" : COLORS.textTertiary,
+                  background: tab === t.key ? COLORS.accent : "transparent",
                   transition: "background 0.15s ease",
                 }}
               >
@@ -145,7 +162,7 @@ export default function ProjectsView() {
           <select
             value={chefFilter}
             onChange={(e) => setChefFilter(e.target.value)}
-            style={{ fontFamily: FONT, fontSize: 13, color: C.ink, padding: "8px 12px", borderRadius: C.radius, border: `1px solid ${C.line}`, background: C.card, cursor: "pointer" }}
+            style={{ fontFamily: FONT, fontSize: 13, color: COLORS.text, padding: "8px 12px", borderRadius: BORDERS.radius.md, border: `1px solid ${COLORS.border}`, background: COLORS.surface, cursor: "pointer" }}
           >
             <option value="">Tous les chefs de projet</option>
             {chefs.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -153,9 +170,9 @@ export default function ProjectsView() {
         </div>
 
         {rows.length > 0 ? (
-          <Table columns={columns} rows={rows} onRowClick={(row) => navigate(`/projects/${row.id}`)} />
+          <Table columns={columns} rows={rows} onRowClick={(row) => navigate(`/projets/${row.id}`)} />
         ) : (
-          <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: C.radius, padding: 40, textAlign: "center", fontFamily: FONT, fontSize: 13.5, color: C.faint }}>
+          <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: BORDERS.radius.md, padding: 40, textAlign: "center", fontFamily: TYPOGRAPHY.body.fontFamily, fontSize: 13.5, color: COLORS.textTertiary }}>
             {emptyMessage}
           </div>
         )}

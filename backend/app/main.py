@@ -44,7 +44,8 @@ app.include_router(piece_dossier_router.router)  # ← AJOUTÉ, manquait — san
 
 @app.on_event("startup")
 def on_startup():
-    start_scheduler()
+    # TEMPORAIREMENT DÉSACTIVÉ
+    # start_scheduler()
     
     # ← NOUVEAU : Réinitialisation des analyses bloquées au démarrage du serveur
     db = SessionLocal()

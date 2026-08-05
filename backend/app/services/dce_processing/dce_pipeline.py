@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import threading
+import time
 
 from sqlalchemy.orm import Session
 
@@ -189,6 +190,10 @@ def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False)
     if existing is not None and existing.statut == "complete" and not force:
         return existing
 
+    # Instrumentation des performances - Début du chronométrage
+    pipeline_start = time.time()
+    logger.info(f"[PIPELINE] Début pipeline AO {appel_offres_id}")
+
     # Initialisation de l'état de traitement
     analyse = _get_or_create_analyse(db, appel_offres_id)
     analyse.statut = "en_cours"
@@ -198,8 +203,11 @@ def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False)
     # --- ÉTAPE 0 : Lazy Loading (Téléchargement à la demande) ---
     # Le DCE n'est téléchargé que si l'utilisateur déclenche l'analyse. 
     # Cela économise de la bande passante et du stockage pour les AO qui ne seront jamais analysés.
+    download_start = time.time()
     if not appel.url_cps:
         download_result = download_dce_for(db, appel_offres_id)
+        download_end = time.time()
+        logger.info(f"[PIPELINE] Téléchargement DCE : {download_end - download_start:.2f}s")
         if not download_result.get("success"):
             return _mark_failed(
                 db, analyse,
@@ -207,14 +215,20 @@ def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False)
                 nb_documents_analyses=0,
             )
         db.refresh(appel)  # url_cps vient d'être renseigné par download_dce_for
+    else:
+        download_end = time.time()
+        logger.info(f"[PIPELINE] Téléchargement DCE : déjà disponible (0.00s)")
 
     # --- ÉTAPE 1 : Ingestion et Validation (Dézippage) ---
     # Fail-Fast : si le conteneur (ZIP) est corrompu, on arrête immédiatement. 
     # Inutile de consommer des ressources pour la suite.
+    unzip_start = time.time()
     try:
         extracted_files = zip_extractor.extract_zip(appel_offres_id, appel.url_cps)
     except ZipExtractionError as exc:
         return _mark_failed(db, analyse, f"Échec du dézippage : {exc}", nb_documents_analyses=0)
+    unzip_end = time.time()
+    logger.info(f"[PIPELINE] Dézippage : {unzip_end - unzip_start:.2f}s, {len(extracted_files)} fichiers extraits")
 
     if not extracted_files:
         return _mark_failed(
@@ -226,14 +240,20 @@ def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False)
     # --- ÉTAPE 2 : Extraction de features et Persistance (Texte + Indexation) ---
     # Cette étape est tolérante aux pannes. Même si 50% des fichiers échouent, 
     # les 50% restants sont indexés et serviront au contexte.
+    extraction_start = time.time()
     output_dir = os.path.join(settings.dce_extracted_storage_path, str(appel_offres_id))
     document_indexer.index_documents(db, appel_offres_id, extracted_files, output_dir)
+    extraction_end = time.time()
+    logger.info(f"[PIPELINE] Extraction de texte + indexation : {extraction_end - extraction_start:.2f}s")
 
     # --- ÉTAPE 3 : Agrégation et Gestion de Fenêtre de Contexte ---
     # Les LLM ont une limite stricte de tokens (fenêtre de contexte). 
     # Cette étape agit comme un système de "Retrieval" : elle trie, pondère et tronque 
     # les documents pour maximiser la densité d'information utile tout en respectant la limite technique.
+    context_start = time.time()
     built_context = context_builder.build_context(db, appel_offres_id, settings.dce_context_max_chars)
+    context_end = time.time()
+    logger.info(f"[PIPELINE] Construction contexte : {context_end - context_start:.2f}s")
 
     if not built_context.texte.strip():
         return _mark_failed(
@@ -253,7 +273,10 @@ def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False)
 
     # --- ÉTAPE 4 : Inférence (Appel au modèle prédictif / LLM) ---
     # L'appel LLM retourne maintenant un fallback en cas d'erreur au lieu de lever une exception
+    llm_start = time.time()
     result = ai_extractor.call_llm(appel, built_context.texte)
+    llm_end = time.time()
+    logger.info(f"[LLM] Appel LLM : {llm_end - llm_start:.2f}s")
 
     # --- ÉTAPE 5 : Structuration du résultat et Évaluation de la qualité ---
     # Mapping de la sortie JSON du LLM vers le modèle de base de données.
@@ -348,6 +371,18 @@ def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False)
         analyse.statut = "complete"
         analyse.erreur = None
 
+    # Instrumentation des performances - Fin du chronométrage
+    validation_start = time.time()
     db.commit()
     db.refresh(analyse)
+    validation_end = time.time()
+    
+    pipeline_end = time.time()
+    total_duration = pipeline_end - pipeline_start
+    
+    logger.info(f"[PIPELINE] Validation + persistance : {validation_end - validation_start:.2f}s")
+    logger.info(f"[PIPELINE] === SYNTHÈSE PERFORMANCES ===")
+    logger.info(f"[PIPELINE] Durée totale pipeline : {total_duration:.2f}s")
+    logger.info(f"[PIPELINE] Répartition : téléchargement={download_end - download_start:.2f}s, dézippage={unzip_end - unzip_start:.2f}s, extraction={extraction_end - extraction_start:.2f}s, contexte={context_end - context_start:.2f}s, LLM={llm_end - llm_start:.2f}s, validation={validation_end - validation_start:.2f}s")
+    
     return analyse

@@ -85,5 +85,7 @@ def index_documents(db: Session, appel_offres_id: int, extracted_files: list[Ext
     # Cela évite des bugs subtils si le code appelant utilise ces objets juste après l'appel.
     for document in documents:
         db.refresh(document)
+    
+    return documents
 
     return documents

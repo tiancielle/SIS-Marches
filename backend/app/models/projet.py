@@ -26,9 +26,15 @@ class Projet(Base):
     chef = Column(String, nullable=True)   # nom affiché (dénormalisé, compat V1)
     chef_id = Column(Integer, ForeignKey("equipe.id"), nullable=True)  # vraie FK vers Equipe
 
-    # Cycle de vie V2 complet (remplace l'ancien "actif"/"termine")
-    # interesse | en_preparation | pret_a_deposer | soumis | gagne | perdu | abandonne | en_execution | termine | suspendu | ignore
+    # Cycle de vie V2 complet (remplace l'ancien "actif"/"termine)
+    # interesse | en_preparation | pret_a_deposer | soumis | gagne | perdu | abandonne | a_demarrer | en_execution | termine | suspendu | ignore
     statut = Column(String, nullable=False, default="interesse")
+
+    # Workflow simplifié inspiré de Linear/Notion
+    # "opportunite" : interesse, en_preparation, pret_a_deposer, soumis
+    # "projet" : a_demarrer, en_execution, actif, suspendu, termine
+    # "archive" : perdu, abandonne, ignore, expire
+    workflow_state = Column(String, nullable=False, default="opportunite")
 
     date_soumission = Column(Date, nullable=True)
     date_creation = Column(DateTime(timezone=True), server_default=func.now())

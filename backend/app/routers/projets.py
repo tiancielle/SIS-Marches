@@ -74,7 +74,9 @@ def changer_statut_projet(
     data: StatutChangeRequest, 
     db: Session = Depends(get_db)
 ):
-    """Change le statut d'un projet/opportunité et enregistre l'événement dans l'historique."""
+    """Change le statut d'un projet/opportunité et enregistre l'événement dans l'historique.
+    Met à jour automatiquement workflow_state selon le workflow simplifié.
+    Gère la migration automatique Opportunité → Projet lors du passage à 'gagne'."""
     projet = db.query(Projet).filter(Projet.id == projet_id).first()
     if not projet:
         raise HTTPException(status_code=404, detail="Projet introuvable")
@@ -96,6 +98,7 @@ def changer_statut_projet(
     
     ancien_statut = projet.statut
     nouveau_statut = data.nouveau_statut
+    ancien_workflow_state = projet.workflow_state
     
     if nouveau_statut not in transitions_valides.get(ancien_statut, []):
         raise HTTPException(
@@ -103,17 +106,66 @@ def changer_statut_projet(
             detail=f"Transition invalide: {ancien_statut} → {nouveau_statut}"
         )
     
-    # Mise à jour du statut
-    projet.statut = nouveau_statut
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # MIGRATION AUTOMATIQUE : Opportunité → Projet
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # Quand une opportunité passe à "gagne", elle migre automatiquement vers le workflow Projet
+    # avec le statut initial "a_demarrer"
+    if nouveau_statut == "gagne" and ancien_statut != "gagne" and ancien_workflow_state == "opportunite":
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Log explicite de la migration
+        logger.info(f"[WORKFLOW] Migration Opportunité → Projet | Projet ID : {projet.id} | Ancien workflow : {ancien_workflow_state} | Nouveau workflow : projet | Statut initial du projet : a_demarrer")
+        
+        # Migration de workflow
+        projet.workflow_state = "projet"
+        projet.statut = "a_demarrer"
+        
+        # Enregistrement spécifique dans l'historique pour la migration
+        evenement_migration = HistoriqueEvenement(
+            projet_id=projet.id,
+            type_evenement="workflow_migration",
+            titre="Migration Opportunité → Projet",
+            description=f"L'opportunité a été automatiquement migrée vers le workflow Projet suite au statut 'Gagnée'. Statut initial : 'À démarrer'.",
+            ancien_statut=ancien_statut,
+            nouveau_statut="a_demarrer",
+            donnees={
+                "ancien_workflow": ancien_workflow_state,
+                "nouveau_workflow": "projet",
+                "raison": "statut_gagne"
+            }
+        )
+        db.add(evenement_migration)
+        
+        # Mettre à jour les variables pour la suite du traitement
+        nouveau_statut = "a_demarrer"
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    
+    # Mise à jour du statut (si pas de migration)
+    if projet.statut != nouveau_statut:
+        projet.statut = nouveau_statut
+    
+    # Mise à jour automatique de workflow_state selon le workflow simplifié
+    # "opportunite" : interesse, en_preparation, pret_a_deposer, soumis
+    # "projet" : a_demarrer, en_execution, actif, suspendu, terme
+    # "archive" : perdu, abandonne, ignore, expire
+    if nouveau_statut in ["interesse", "en_preparation", "pret_a_deposer", "soumis"]:
+        projet.workflow_state = "opportunite"
+    elif nouveau_statut in ["a_demarrer", "en_execution", "actif", "suspendu", "termine"]:
+        projet.workflow_state = "projet"
+    elif nouveau_statut in ["perdu", "abandonne", "ignore"]:
+        projet.workflow_state = "archive"
+    
     db.commit()
     db.refresh(projet)
     
-    # Enregistrement automatique dans l'historique
+    # Enregistrement automatique dans l'historique (changement de statut standard)
     evenement = HistoriqueEvenement(
         projet_id=projet.id,
         type_evenement="statut_change",
         titre=f"Statut changé: {ancien_statut} → {nouveau_statut}",
-        description=f"Le statut a été modifié de '{ancien_statut}' à '{nouveau_statut}'",
+        description=f"Le statut a été modifié de '{ancien_statut}' à '{nouveau_statut}' (workflow_state: {projet.workflow_state})",
         ancien_statut=ancien_statut,
         nouveau_statut=nouveau_statut,
     )

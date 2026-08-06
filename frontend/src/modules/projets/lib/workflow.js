@@ -21,13 +21,9 @@ export function isProjet(projet) {
   return getWorkflowState(projet.statut) === "projet";
 }
 
-export function isProjetGagne(projet) {
-  return projet.statut === "gagne";
-}
-
-export function canConvertToProjet(projet) {
-  return projet.statut === "gagne" && projet.workflow_state === "opportunite";
-}
+// Fonction supprimée : le backend convertit automatiquement les opportunités gagnées
+// en projets avec statut="a_demarrer" et workflow_state="projet"
+// Le frontend ne reçoit jamais statut="gagne" avec workflow_state="opportunite"
 
 // Workflow simplifié inspiré de Linear/Notion
 // Note: workflow_state est maintenant géré automatiquement par le backend

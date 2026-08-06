@@ -112,11 +112,9 @@ export default function DetailShell({
         </div>
 
         <div style={{ display: "flex", gap: 24, marginTop: 16, padding: "12px 16px", background: C.paper, border: `1px solid ${C.line}`, borderRadius: C.radius, flexWrap: "wrap" }}>
-          <SummaryItem icon={MapPin} value={project.lieu} />
-          <SummaryItem icon={User} value={project.chef} />
-          <SummaryItem icon={Wallet} value={fmt(project.budget)} />
-          <SummaryItem icon={CalendarRange} value={`${fmtDate(project.debut)} → ${fmtDate(project.fin)}`} />
-          <SummaryItem icon={Users} value={equipeNames} />
+          <SummaryItem icon={User} value={project.chef || "Non assigné"} />
+          <SummaryItem icon={Wallet} value={project.budget ? `${project.budget.toLocaleString()} MAD` : "—"} />
+          <SummaryItem icon={CalendarRange} value={fmtDate(project.fin) || "—"} />
         </div>
 
         {!editing && (

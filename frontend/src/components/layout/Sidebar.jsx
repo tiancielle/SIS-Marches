@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, ChevronRight, FileSearch, Briefcase, FolderKanban,
@@ -69,8 +69,26 @@ const GROUPS = [
 
 export default function Sidebar() {
   const location = useLocation();
-  const active = GROUPS.find((g) => g.items.some((i) => i.to && location.pathname.startsWith(i.to)));
-  const [openId, setOpenId] = useState(active?.id ?? null);
+  const [openId, setOpenId] = useState(null);
+
+  // Synchronisation automatique selon la page courante
+  useEffect(() => {
+    const pathname = location.pathname;
+    
+    if (pathname.startsWith("/projets")) {
+      setOpenId("suivi");
+    } else if (pathname.startsWith("/contrats")) {
+      setOpenId("suivi");
+    } else if (pathname.startsWith("/opportunites")) {
+      setOpenId("opportunites");
+    } else if (pathname.startsWith("/marches")) {
+      setOpenId("veille");
+    } else if (pathname.startsWith("/equipe") || pathname.startsWith("/sous-traitants")) {
+      setOpenId("ressources");
+    } else if (pathname.startsWith("/dashboard")) {
+      setOpenId(null);
+    }
+  }, [location.pathname]);
 
   return (
     <aside style={{ width: 236, flexShrink: 0, background: C.sidebarBg, display: "flex", flexDirection: "column", padding: "20px 12px", height: "100vh", position: "sticky", top: 0, overflowY: "auto" }}>

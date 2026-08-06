@@ -60,6 +60,7 @@ export function DataProvider({ children }) {
   const addProject = async (data) => {
     const created = await createProjectApi(data);
     setProjects((prev) => [...prev, created]);
+    pushHistory(created.id, "Projet créé", `Le projet "${created.nom}" a été créé`);
     return created;
   };
 
@@ -69,11 +70,13 @@ export function DataProvider({ children }) {
   // et le projet reste invisible jusqu'au prochain rechargement complet de la page.
   const addProjectToState = (projet) => {
     setProjects((prev) => (prev.some((p) => p.id === projet.id) ? prev : [...prev, projet]));
+    pushHistory(projet.id, "Projet créé", `Le projet "${projet.nom}" a été créé`);
   };
 
   const updateProject = async (id, data) => {
     const updated = await updateProjectApi(id, data);
     setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
+    pushHistory(id, "Informations modifiées", "Les informations générales du projet ont été mises à jour");
     return updated;
   };
 
@@ -105,18 +108,28 @@ export function DataProvider({ children }) {
   const addContrat = async (data) => {
     const created = await createContrat(data);
     setContrats((prev) => [...prev, created]);
+    if (data.projet_id) {
+      pushHistory(data.projet_id, "Contrat créé", `Un nouveau contrat a été ajouté au projet`);
+    }
     return created;
   };
 
   const editContrat = async (id, data) => {
     const updated = await updateContrat(id, data);
     setContrats((prev) => prev.map((c) => (c.id === id ? updated : c)));
+    if (updated.projet_id) {
+      pushHistory(updated.projet_id, "Contrat modifié", `Le contrat a été mis à jour`);
+    }
     return updated;
   };
 
   const removeContrat = async (id) => {
+    const contrat = contrats.find((c) => c.id === id);
     await deleteContrat(id);
     setContrats((prev) => prev.filter((c) => c.id !== id));
+    if (contrat?.projet_id) {
+      pushHistory(contrat.projet_id, "Contrat supprimé", `Le contrat a été supprimé du projet`);
+    }
   };
 
   // --- 5) CRUD DCE ---
@@ -276,6 +289,7 @@ export function DataProvider({ children }) {
   const changeProjectStatut = async (projetId, nouveauStatut) => {
     const updated = await changerStatutProjet(projetId, nouveauStatut);
     setProjects((prev) => prev.map((p) => (p.id === projetId ? updated : p)));
+    pushHistory(projetId, "Statut changé", `Le statut du projet est passé à "${nouveauStatut}"`);
     return updated;
   };
 

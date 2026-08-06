@@ -24,8 +24,9 @@ export const TRANSITIONS_PAR_STATUT = {
     { value: "perdu", label: "Perdue" },
     { value: "en_preparation", label: "Retour en préparation" },
   ],
-  gagne: [
+  a_demarrer: [
     { value: "en_execution", label: "Démarrer l'exécution" },
+    { value: "suspendu", label: "Suspendre" },
   ],
   en_execution: [
     { value: "termine", label: "Terminer" },
@@ -57,8 +58,7 @@ export const STATUT_OPTIONS_BY_WORKFLOW_STATE = {
     { value: "abandonne", label: "Abandonnée" },
   ],
   projet: [
-    { value: "soumis", label: "Déposée" },
-    { value: "gagne", label: "Gagnée" },
+    { value: "a_demarrer", label: "À démarrer" },
     { value: "en_execution", label: "En exécution" },
     { value: "suspendu", label: "Suspendu" },
     { value: "termine", label: "Terminé" },

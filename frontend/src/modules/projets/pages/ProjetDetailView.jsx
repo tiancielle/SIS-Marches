@@ -37,7 +37,8 @@ export default function ProjetDetailView() {
   if (!project) return <div style={{ padding: 32, color: C.faint }}>Projet introuvable.</div>;
 
   const workflowState = getWorkflowState(project.statut);
-  const equipeNames = getEquipeForProject(project.id).map((m) => m.nom).join(", ") || "Aucun membre affecté";
+  const equipe = getEquipeForProject(project.id);
+  const equipeNames = equipe.map((m) => m.nom).join(", ") || "Aucun membre affecté";
 
   // Charger les documents DCE si appel_offres_id existe
   useEffect(() => {
@@ -52,19 +53,17 @@ export default function ProjetDetailView() {
 
   // Configuration des onglets selon le workflow_state
   const tabs = workflowState === "opportunite" ? [
-    { key: "infos", label: "Infos générales", component: InfoTab },
+    { key: "infos", label: "Informations", component: InfoTab },
     { key: "dce", label: "DCE", component: ProjectDCETab },
-    { key: "documents", label: "Documents", component: null }, // Special handling
-    { key: "candidature", label: "Dossier de candidature", component: ProjectCandidatureTab },
+    { key: "documents", label: "Documents", component: null },
+    { key: "candidature", label: "Candidature", component: ProjectCandidatureTab },
     { key: "historique", label: "Historique", component: ProjectHistoryTab },
   ] : [
-    { key: "infos", label: "Infos générales", component: InfoTab },
+    { key: "infos", label: "Informations", component: InfoTab },
     { key: "equipe", label: "Équipe", component: ProjectEquipeTab },
     { key: "subs", label: "Sous-traitants", component: ProjectSubsTab },
     { key: "docs", label: "Documents", component: ProjectDocsTab },
-    { key: "dce", label: "DCE", component: ProjectDCETab },
-    { key: "candidature", label: "Dossier de candidature", component: ProjectCandidatureTab },
-    { key: "contrats", label: "Contrats liés", component: ContratsTab },
+    { key: "contrats", label: "Contrats", component: ContratsTab },
     { key: "historique", label: "Historique", component: ProjectHistoryTab },
   ];
 
@@ -120,6 +119,15 @@ export default function ProjetDetailView() {
               Cette opportunité n'a pas d'appel d'offres associé.
             </div>
           )}
+        </div>
+      );
+    }
+    
+    // Onglets placeholders pour fonctionnalités futures
+    if (currentTab === "zip" || currentTab === "ppt") {
+      return (
+        <div style={{ padding: 48, textAlign: "center", color: C.faint }}>
+          Fonctionnalité bientôt disponible.
         </div>
       );
     }

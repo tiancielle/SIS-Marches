@@ -1,29 +1,25 @@
 import React, { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { FolderKanban, Wallet, CalendarClock, Users2 } from "lucide-react";
+import { MoreHorizontal } from "lucide-react";
 import Header from "../../../components/layout/Header";
 import Table from "../../../components/ui/Table";
 import Badge from "../../../components/ui/Badge";
 import Highlight from "../../../components/ui/Highlight";
-import StatCard from "../../../components/ui/StatCard";
 import ProjectForm from "./ProjectForm";
 import { useData } from "../../../store/DataContext";
-import { fmt, fmtDate } from "../../../lib/mockData";
-import { C, FONT } from "../../../styles/theme";
-
-function initials(name) {
-  if (!name) return "—";
-  return name.split(/[\s.]+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase();
-}
+import { fmtDate } from "../../../lib/mockData";
+import { COLORS, BORDERS, TYPOGRAPHY, SHADOWS } from "../../../styles/designSystem";
+import { TRANSITIONS_PAR_STATUT } from "../lib/tabsConfig";
 
 export default function ProjectsView() {
   const navigate = useNavigate();
-  const { projects, addProject, getContratsForProject } = useData();
+  const { projects, addProject, changeProjectStatut, getContratsForProject } = useData();
   const [tab, setTab] = useState("actif");
   const [query, setQuery] = useState("");
   const [chefFilter, setChefFilter] = useState("");
   const [sort, setSort] = useState({ key: "nom", dir: "asc" });
   const [showForm, setShowForm] = useState(false);
+  const [actionsMenu, setActionsMenu] = useState(null);
 
   // Filtrer uniquement les projets réels (workflow_state = "projet")
   const realProjects = useMemo(() => 
@@ -33,28 +29,19 @@ export default function ProjectsView() {
 
   const chefs = useMemo(() => [...new Set(realProjects.map((p) => p.chef))].sort(), [realProjects]);
   
-  // Compteurs pour les nouveaux onglets
+  // Compteurs pour les onglets
   const countADemarrer = realProjects.filter((p) => p.statut === "a_demarrer").length;
   const countEnCours = realProjects.filter((p) => p.statut === "en_execution" || p.statut === "actif").length;
   const countSuspendus = realProjects.filter((p) => p.statut === "suspendu").length;
   const countTermines = realProjects.filter((p) => p.statut === "termine").length;
   const countTous = realProjects.length;
 
-  // KPI dérivés du même state que la liste — aucune nouvelle donnée, juste une vue résumée
-  // pour retrouver l'esprit "cockpit" du Dashboard plutôt qu'une simple table brute.
-  const enCoursProjects = realProjects.filter((p) => p.statut === "en_execution" || p.statut === "actif");
-  const budgetEngageTotal = enCoursProjects.reduce((sum, p) => sum + (p.budget_engage || 0), 0);
-  const in30Days = new Date();
-  in30Days.setDate(in30Days.getDate() + 30);
-  const now = new Date();
-  const echeancesProches = enCoursProjects.filter((p) => p.fin && new Date(p.fin) >= now && new Date(p.fin) <= in30Days).length;
-
   const TABS = [
     { key: "tous", label: "Tous", count: countTous },
     { key: "a_demarrer", label: "À démarrer", count: countADemarrer },
-    { key: "en_cours", label: "En cours", count: countEnCours },
-    { key: "suspendus", label: "Suspendus", count: countSuspendus },
-    { key: "termines", label: "Terminés", count: countTermines },
+    { key: "en_execution", label: "En exécution", count: countEnCours },
+    { key: "suspendu", label: "Suspendu", count: countSuspendus },
+    { key: "termine", label: "Terminé", count: countTermines },
   ];
 
   const rows = useMemo(() => {
@@ -63,11 +50,11 @@ export default function ProjectsView() {
     // Filtrage par onglet
     if (tab === "a_demarrer") {
       list = list.filter((p) => p.statut === "a_demarrer");
-    } else if (tab === "en_cours") {
+    } else if (tab === "en_execution") {
       list = list.filter((p) => p.statut === "en_execution" || p.statut === "actif");
-    } else if (tab === "suspendus") {
+    } else if (tab === "suspendu") {
       list = list.filter((p) => p.statut === "suspendu");
-    } else if (tab === "termines") {
+    } else if (tab === "termine") {
       list = list.filter((p) => p.statut === "termine");
     }
     // "tous" ne filtre pas par statut
@@ -92,27 +79,81 @@ export default function ProjectsView() {
   );
 
   const columns = [
-    { key: "nom", label: sortableHeader("nom", "Projet"), render: (r) => <Highlight text={r.nom} query={query} /> },
-    { key: "client", label: sortableHeader("client", "Client") },
-    { key: "lieu", label: sortableHeader("lieu", "Lieu") },
-    {
-      key: "chef", label: sortableHeader("chef", "Chef de projet"),
+    { key: "nom", label: sortableHeader("nom", "Nom du marché"), render: (r) => <Highlight text={r.nom} query={query} /> },
+    { key: "client", label: sortableHeader("client", "Maître d'ouvrage") },
+    { key: "statut", label: sortableHeader("statut", "Phase actuelle"), render: (r) => <Badge status={r.statut} /> },
+    { key: "budget", label: sortableHeader("budget", "Montant"), render: (r) => r.budget ? `${r.budget.toLocaleString()} MAD` : "—" },
+    { key: "fin", label: sortableHeader("fin", "Prochaine échéance"), render: (r) => fmtDate(r.fin) },
+    { key: "chef", label: sortableHeader("chef", "Chef de projet") },
+    { 
+      key: "actions", 
+      label: "", 
       render: (r) => (
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{
-            width: 24, height: 24, borderRadius: "50%", background: COLORS.accentLight, color: COLORS.accent,
-            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-            fontFamily: FONT, fontSize: 10, fontWeight: 700,
-          }}>
-            {initials(r.chef)}
-          </div>
-          {r.chef}
+        <div style={{ position: "relative" }}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setActionsMenu(actionsMenu === r.id ? null : r.id);
+            }}
+            style={{
+              width: 28, height: 28,
+              borderRadius: BORDERS.radius.sm,
+              border: "none",
+              background: COLORS.surface,
+              cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              color: COLORS.textSecondary,
+            }}
+          >
+            <MoreHorizontal size={14} strokeWidth={2} />
+          </button>
+          
+          {actionsMenu === r.id && (
+            <div 
+              onMouseLeave={() => setActionsMenu(null)}
+              style={{
+                position: "absolute", right: 0, top: "100%",
+                background: COLORS.background,
+                border: `1px solid ${COLORS.border}`,
+                borderRadius: BORDERS.radius.md,
+                boxShadow: SHADOWS.lg,
+                padding: 4,
+                minWidth: 180,
+                zIndex: 10,
+              }}
+            >
+              {TRANSITIONS_PAR_STATUT[r.statut]?.map((transition) => (
+                <button
+                  key={transition.value}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    changeProjectStatut(r.id, transition.value);
+                    setActionsMenu(null);
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "none",
+                    background: "transparent",
+                    cursor: "pointer",
+                    borderRadius: BORDERS.radius.sm,
+                    color: COLORS.text,
+                    fontFamily: TYPOGRAPHY.body.fontFamily,
+                    fontSize: 13,
+                    textAlign: "left",
+                    ":hover": {
+                      background: COLORS.surfaceAlt,
+                    },
+                  }}
+                >
+                  {transition.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-      ),
+      )
     },
-    { key: "fin", label: "Fin prévue", render: (r) => fmtDate(r.fin) },
-    { key: "subs", label: "Sous-traitants", render: (r) => getContratsForProject(r.id).length },
-    { key: "statut", label: "Statut", render: (r) => <Badge status={r.statut} /> },
   ];
 
   const emptyMessage = query
@@ -133,13 +174,6 @@ export default function ProjectsView() {
       />
 
       <div style={{ padding: "20px 32px", background: COLORS.background }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 14, marginBottom: 20 }}>
-          <StatCard label="Projets en cours" value={countEnCours} icon={FolderKanban} subtext={`${countTermines} terminés au total`} />
-          <StatCard label="À démarrer" value={countADemarrer} icon={CalendarClock} subtext="projets gagnés en attente" />
-          <StatCard label="Budget engagé" value={fmt(budgetEngageTotal)} icon={Wallet} subtext="sur les projets en cours" />
-          <StatCard label="Chefs de projet" value={chefs.length} icon={Users2} subtext="mobilisés actuellement" />
-        </div>
-
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}>
           <div style={{ display: "flex", gap: 4, background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: BORDERS.radius.md, padding: 4 }}>
             {TABS.map((t) => (
@@ -147,7 +181,7 @@ export default function ProjectsView() {
                 key={t.key}
                 onClick={() => setTab(t.key)}
                 style={{
-                  fontFamily: FONT, fontSize: 13.5, fontWeight: 600, padding: "7px 14px",
+                  fontFamily: TYPOGRAPHY.body.fontFamily, fontSize: 13.5, fontWeight: 600, padding: "7px 14px",
                   borderRadius: 8, border: "none", cursor: "pointer",
                   color: tab === t.key ? "#fff" : COLORS.textTertiary,
                   background: tab === t.key ? COLORS.accent : "transparent",
@@ -162,7 +196,7 @@ export default function ProjectsView() {
           <select
             value={chefFilter}
             onChange={(e) => setChefFilter(e.target.value)}
-            style={{ fontFamily: FONT, fontSize: 13, color: COLORS.text, padding: "8px 12px", borderRadius: BORDERS.radius.md, border: `1px solid ${COLORS.border}`, background: COLORS.surface, cursor: "pointer" }}
+            style={{ fontFamily: TYPOGRAPHY.body.fontFamily, fontSize: 13, color: COLORS.text, padding: "8px 12px", borderRadius: BORDERS.radius.md, border: `1px solid ${COLORS.border}`, background: COLORS.surface, cursor: "pointer" }}
           >
             <option value="">Tous les chefs de projet</option>
             {chefs.map((c) => <option key={c} value={c}>{c}</option>)}

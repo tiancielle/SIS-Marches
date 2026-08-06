@@ -12,8 +12,6 @@ export default function OpportuniteCard({ opportunite }) {
   const { changeProjectStatut } = useData();
   const [showActions, setShowActions] = React.useState(false);
 
-  const progress = opportunite.progression_dossier?.completion || 0;
-
   const handleStatutChange = async (action) => {
     try {
       await changeProjectStatut(opportunite.id, action);
@@ -118,40 +116,17 @@ export default function OpportuniteCard({ opportunite }) {
         </div>
       </div>
 
-      {/* Footer avec date, responsable et progression */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: SPACING.sm }}>
-          <span style={{ ...TYPOGRAPHY.caption, color: COLORS.textSecondary }}>
-            {fmtDate(opportunite.date_limite_ao || opportunite.fin)}
-          </span>
-          <span style={{ ...TYPOGRAPHY.caption, color: COLORS.textTertiary }}>
-            •
-          </span>
-          <span style={{ ...TYPOGRAPHY.caption, color: COLORS.text }}>
-            {opportunite.chef || "Non assigné"}
-          </span>
-        </div>
-        
-        <div style={{ display: "flex", alignItems: "center", gap: SPACING.xs }}>
-          <div style={{
-            width: 40,
-            height: 3,
-            background: COLORS.surfaceAlt,
-            borderRadius: BORDERS.radius.full,
-            overflow: "hidden",
-          }}>
-            <div style={{
-              height: "100%",
-              width: `${progress}%`,
-              background: COLORS.primary,
-              borderRadius: BORDERS.radius.full,
-              transition: `width ${TRANSITIONS.normal}`,
-            }} />
-          </div>
-          <span style={{ ...TYPOGRAPHY.caption, color: COLORS.textSecondary, minWidth: 20 }}>
-            {progress}%
-          </span>
-        </div>
+      {/* Footer avec date et responsable */}
+      <div style={{ display: "flex", alignItems: "center", gap: SPACING.sm }}>
+        <span style={{ ...TYPOGRAPHY.caption, color: COLORS.textSecondary }}>
+          {fmtDate(opportunite.date_limite_ao || opportunite.fin)}
+        </span>
+        <span style={{ ...TYPOGRAPHY.caption, color: COLORS.textTertiary }}>
+          •
+        </span>
+        <span style={{ ...TYPOGRAPHY.caption, color: COLORS.text }}>
+          {opportunite.chef || "Non assigné"}
+        </span>
       </div>
     </div>
   );

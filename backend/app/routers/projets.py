@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.core.database import get_db
@@ -87,7 +88,7 @@ def changer_statut_projet(
         "en_preparation": ["pret_a_deposer", "soumis", "ignore", "abandonne"],
         "pret_a_deposer": ["soumis", "en_preparation", "ignore", "abandonne"],
         "soumis": ["gagne", "perdu", "en_preparation"],
-        "gagne": ["en_execution"],
+        "a_demarrer": ["en_execution", "suspendu"],  # Projet après migration
         "en_execution": ["termine", "suspendu"],
         "perdu": [],
         "ignore": ["interesse"],
@@ -130,11 +131,11 @@ def changer_statut_projet(
             description=f"L'opportunité a été automatiquement migrée vers le workflow Projet suite au statut 'Gagnée'. Statut initial : 'À démarrer'.",
             ancien_statut=ancien_statut,
             nouveau_statut="a_demarrer",
-            donnees={
+            donnees=json.dumps({
                 "ancien_workflow": ancien_workflow_state,
                 "nouveau_workflow": "projet",
                 "raison": "statut_gagne"
-            }
+            })
         )
         db.add(evenement_migration)
         

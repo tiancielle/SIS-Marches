@@ -24,6 +24,7 @@ import subprocess
 import shutil
 import tempfile
 import logging
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -38,6 +39,9 @@ logger = logging.getLogger(__name__)
 # Ce dictionnaire agit comme un cache au niveau du module (singleton) pour ne payer ce coût 
 # qu'une seule fois par langue au cours de la vie du processus, et non à chaque document.
 _paddle_ocr_instances: dict[str, object] = {}
+
+# Compteur global pour identifier le premier appel predict() (warm-up)
+_first_predict_call = True
 
 
 def _get_paddle_ocr(lang: str):
@@ -81,76 +85,161 @@ def _extract_ocr_result_texts(result_item) -> list:
 
 def _ocr_page_avec_langue(img_path: str, lang: str) -> str:
     """Exécute l'OCR sur une image pour une langue spécifique."""
+    global _first_predict_call
     try:
+        import cv2
+        
+        # Instrumentation : dimensions de l'image
+        img = cv2.imread(img_path)
+        if img is not None:
+            height, width = img.shape[:2]
+            logger.info(f"[OCR-DEBUG] Image dimensions: {width}x{height} pixels")
+        
+        # AUDIT VERSIONS
+        try:
+            import paddleocr
+            logger.info(f"[OCR-DEBUG] PaddleOCR version: {paddleocr.__version__}")
+        except:
+            logger.info(f"[OCR-DEBUG] PaddleOCR version: Non disponible")
+        
+        try:
+            import paddle
+            logger.info(f"[OCR-DEBUG] PaddlePaddle version: {paddle.__version__}")
+        except:
+            logger.info(f"[OCR-DEBUG] PaddlePaddle version: Non disponible")
+        
         ocr = _get_paddle_ocr(lang)
+        
+        # Instrumentation : modèle chargé
+        logger.info(f"[OCR-DEBUG] Instance PaddleOCR pour lang={lang}")
+        
+        # Instrumentation : temps predict() avec distinction premier appel vs suivants
+        predict_start = time.time()
         result = ocr.predict(img_path)
-
-        # DIAGNOSTIC 2 : Résultats bruts PaddleOCR
-        logger.info(f"[OCR] Image: {os.path.basename(img_path)}, Langue: {lang}")
-        logger.info(f"[OCR] Nombre de résultats: {len(result)}")
-
-        if len(result) > 0:
-            first_item = result[0]
-            # Tenter d'accéder aux métadonnées de confiance si disponibles
-            if isinstance(first_item, dict):
-                logger.info(f"[OCR] Clés disponibles: {list(first_item.keys())}")
-                if "rec_scores" in first_item:
-                    scores = first_item["rec_scores"]
-                    if scores:
-                        avg_confidence = sum(scores) / len(scores)
-                        logger.info(f"[OCR] Confiance moyenne: {avg_confidence:.2f}")
-                        logger.info(f"[OCR] Scores: {scores[:5]}...")  # Premiers 5 scores
+        predict_end = time.time()
+        predict_time = predict_end - predict_start
+        
+        if _first_predict_call:
+            logger.info(f"[OCR-DEBUG] PREMIER predict() (warm-up): {predict_time:.2f}s")
+            _first_predict_call = False
+        else:
+            logger.info(f"[OCR-DEBUG] predict() (normal): {predict_time:.2f}s")
+        
+        logger.info(f"[OCR-DEBUG] Nombre de résultats: {len(result)}")
 
         texts = []
         for item in result:
             extracted = _extract_ocr_result_texts(item)
             texts.extend(extracted)
 
-        logger.info(f"[OCR] Texte extrait: {len(texts)} blocs, {len(' '.join(texts))} caractères")
-        if texts:
-            logger.info(f"[OCR] Aperçu texte: {' '.join(texts[:2])}...")  # Premiers 2 blocs
-
+        logger.info(f"[OCR-DEBUG] Texte extrait: {len(texts)} blocs, {len(' '.join(texts))} caractères")
         return "\n".join(texts)
     except Exception as exc:  # noqa: BLE001
-        # GESTION D'ERREUR : Dans un traitement par lots, une image corrompue ne doit pas 
-        # faire échouer l'ensemble du document. On logue l'erreur et on retourne une chaîne vide 
-        # pour permettre à la logique de repli (langue suivante) de s'exécuter.
         logger.warning(f"[OCR] Échec OCR (lang={lang}) sur {img_path} : {exc}")
         return ""
 
 
+def _preprocess_image_for_ocr(img_path: str) -> str:
+    """
+    Pré-traitement d'image pour améliorer la qualité de l'OCR.
+    
+    Opérations appliquées :
+    1. Correction automatique de rotation (deskew)
+    2. Amélioration du contraste (CLAHE)
+    3. Binarisation adaptative
+    4. Réduction du bruit (median blur)
+    
+    Retourne le chemin de l'image pré-traitée.
+    """
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        logger.warning("[OCR] OpenCV non disponible, pas de pré-traitement")
+        return img_path
+    
+    try:
+        # Charger l'image
+        img = cv2.imread(img_path)
+        if img is None:
+            logger.warning(f"[OCR] Impossible de charger l'image : {img_path}")
+            return img_path
+        
+        original_path = img_path
+        processed_path = img_path.replace(".png", "_preprocessed.png")
+        
+        # 1. Conversion en niveaux de gris
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # 2. Correction de rotation (deskew) simple
+        # Détecter les contours et trouver l'angle de rotation
+        coords = np.column_stack(np.where(gray > 0))
+        if len(coords) > 0:
+            angle = cv2.minAreaRect(coords)[-1]
+            if angle < -45:
+                angle = -(90 + angle)
+            else:
+                angle = -angle
+            
+            # Corriger si l'angle est significatif (> 0.5 degré)
+            if abs(angle) > 0.5:
+                (h, w) = gray.shape[:2]
+                center = (w // 2, h // 2)
+                M = cv2.getRotationMatrix2D(center, angle, 1.0)
+                gray = cv2.warpAffine(gray, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+                logger.debug(f"[OCR] Correction rotation : {angle:.2f} degrés")
+        
+        # 3. Amélioration du contraste avec CLAHE (Contrast Limited Adaptive Histogram Equalization)
+        # Améliore le contraste local sans amplifier trop le bruit
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced = clahe.apply(gray)
+        
+        # 4. Binarisation adaptative (Otsu ou adaptative)
+        # Pour les documents avec un fond non uniforme
+        _, binary = cv2.threshold(enhanced, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        # 5. Réduction du bruit légère (median blur)
+        # Aide à éliminer le bruit de fond sans trop flouter le texte
+        denoised = cv2.medianBlur(binary, 3)
+        
+        # Sauvegarder l'image pré-traitée
+        cv2.imwrite(processed_path, denoised)
+        
+        logger.debug(f"[OCR] Pré-traitement terminé : {original_path} -> {processed_path}")
+        return processed_path
+        
+    except Exception as exc:
+        logger.warning(f"[OCR] Erreur lors du pré-traitement : {exc}")
+        return img_path
+
+
+
+
+
 def _ocr_pdf_scanne(path: str, out_path: str) -> tuple[int, Optional[str]]:
     """
-    Repli OCR pour un PDF scanné.
-
-    STRATÉGIE D'OPTIMISATION (GELÉE EN ATTENTE DE VALIDATION) :
-    Les DCE marocains sont presque toujours mono-langue par document. Tester systématiquement
-    toutes les langues configurées sur chaque page entraîne une complexité O(N * M).
-    Cette fonction détecte la langue dominante sur la première page, puis la priorise pour les
-    pages suivantes, ramenant la complexité effective proche de O(N + M). Un filet de sécurité
-    conserve la possibilité de tester les autres langues si le résultat est en dessous d'un
-    seuil de confiance heuristique (SEUIL_SUFFISANT).
+    Repli OCR pour un PDF scanné (version séquentielle).
     
     CACHE OCR :
     Vérifie si le résultat existe déjà dans le cache avant de lancer l'OCR.
     Sauvegarde le résultat dans le cache après l'OCR.
-    """
-    import time  # Instrumentation des performances
     
+    PRÉ-TRAITEMENT IMAGE :
+    Chaque page OCRisée passe par un pré-traitement (rotation, contraste, binarisation, débruitage)
+    pour améliorer la qualité de reconnaissance.
+    """
     # Vérification du cache OCR avant de lancer l'OCR
-    cache_start = time.time()
     cached_content, time_saved, cache_metadata = get_cached_ocr_result(path)
-    cache_end = time.time()
     
     if cached_content is not None:
         # Cache HIT : écrire directement le contenu depuis le cache
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(cached_content)
-        logger.info(f"[CACHE] HIT : {cache_end - cache_start:.2f}s, temps économisé : {time_saved:.1f}s")
+        logger.info(f"[PIPELINE] OCR ............ SKIP (cache HIT, temps économisé : {time_saved:.1f}s)")
         return len(cached_content), None
     
     # Cache MISS : lancer l'OCR normalement
-    logger.info(f"[CACHE] MISS : {cache_end - cache_start:.2f}s")
+    logger.info(f"[PIPELINE] OCR ............ RUN (cache MISS)")
     
     try:
         # CHOIX TECHNIQUE : PyMuPDF (fitz) est utilisé car c'est la bibliothèque la plus rapide
@@ -169,149 +258,283 @@ def _ocr_pdf_scanne(path: str, out_path: str) -> tuple[int, Optional[str]]:
 
     total_chars = 0
     langue_dominante: Optional[str] = None
-
-    # DIAGNOSTIC 1 : Répertoire pour sauvegarder les images pour inspection
-    debug_img_dir = os.path.join(settings.dce_extracted_storage_path, "debug_ocr_images")
-    os.makedirs(debug_img_dir, exist_ok=True)
-    pdf_name = os.path.splitext(os.path.basename(path))[0]
-    debug_pdf_dir = os.path.join(debug_img_dir, pdf_name)
-    os.makedirs(debug_pdf_dir, exist_ok=True)
-    logger.info(f"[OCR] Images debug sauvegardées dans: {debug_pdf_dir}")
-
+    
+    # Mesures de performance
+    total_conversion_time = 0
+    total_preprocess_time = 0
+    total_ocr_time = 0
+    
     ocr_start = time.time()
-    conversion_time = 0
-    ocr_time = 0
-    pages_ocrisees = 0
-    pages_ignorees = 0
-
+    
     try:
         doc = fitz.open(path)
         nb_pages = len(doc)
 
-        # DIAGNOSTIC 1 : Informations sur le PDF source
-        logger.info(f"[OCR] Fichier: {os.path.basename(path)}")
-        logger.info(f"[OCR] Nombre de pages: {nb_pages}")
-        logger.info(f"[OCR] Taille: {os.path.getsize(path) / 1024:.1f} KB")
+        logger.info(f"[OCR] Fichier: {os.path.basename(path)}, Pages: {nb_pages}")
 
         with tempfile.TemporaryDirectory() as tmp_dir, open(out_path, "w", encoding="utf-8") as out:
             for page_num, page in enumerate(doc, start=1):
-                # Instrumentation : temps de conversion PDF → image
+                # Conversion PDF → image
                 conv_start = time.time()
-                # CHOIX DE RÉSOLUTION : 200 DPI est le "sweet spot" pour l'OCR.
-                # 72/96 DPI est trop faible pour une reconnaissance précise des caractères,
-                # tandis que 300+ DPI ralentit considérablement le rendu et consomme trop de RAM
-                # pour un gain de précision marginal sur du texte administratif standard.
                 pix = page.get_pixmap(dpi=200)
                 page_img_path = os.path.join(tmp_dir, f"page_{page_num}.png")
                 pix.save(page_img_path)
                 conv_end = time.time()
                 page_conversion_time = conv_end - conv_start
-                conversion_time += page_conversion_time
+                total_conversion_time += page_conversion_time
+                
+                # Pré-traitement OpenCV
+                preprocess_start = time.time()
+                processed_img_path = _preprocess_image_for_ocr(page_img_path)
+                preprocess_end = time.time()
+                page_preprocess_time = preprocess_end - preprocess_start
+                total_preprocess_time += page_preprocess_time
+                
+                # Utiliser l'image pré-traitée si disponible, sinon l'originale
+                img_to_ocr = processed_img_path if processed_img_path != page_img_path else page_img_path
 
-                # DIAGNOSTIC 1 : Sauvegarder une copie pour inspection humaine
-                debug_img_path = os.path.join(debug_pdf_dir, f"page_{page_num}_dpi200.png")
-                pix.save(debug_img_path)
-
-                # DIAGNOSTIC 1 : Qualité de l'image générée
-                img_size = os.path.getsize(page_img_path)
-                img_dims = (pix.width, pix.height)
-                logger.info(f"[OCR] Page {page_num}: {img_dims[0]}x{img_dims[1]} px, {img_size / 1024:.1f} KB, DPI: 200, conversion: {page_conversion_time:.2f}s")
-
-                # DIAGNOSTIC 3 : Suivi bilingue détaillé
-                logger.info(f"[OCR] === Page {page_num}/{nb_pages} ===")
-                logger.info(f"[OCR] Langue dominante actuelle: {langue_dominante or 'Non détectée'}")
-
-                # Ordre de langues à tester pour cette page : la langue dominante
-                # détectée en premier si on la connaît déjà, sinon l'ordre par défaut.
+                # Ordre de langues à tester
                 if langue_dominante:
                     ordre = [langue_dominante] + [l for l in langues if l != langue_dominante]
                 else:
                     ordre = langues
 
-                logger.info(f"[OCR] Ordre des langues à tester: {ordre}")
-
                 meilleur_texte = ""
                 meilleure_langue = None
-                page_ocr_time = 0
+                
+                # OCR avec mesure de temps
+                ocr_page_start = time.time()
                 for lang in ordre:
-                    # Instrumentation : temps d'OCR
-                    ocr_page_start = time.time()
-                    logger.info(f"[OCR] → Test langue: {lang}")
-                    texte = _ocr_page_avec_langue(page_img_path, lang)
-                    ocr_page_end = time.time()
-                    lang_ocr_time = ocr_page_end - ocr_page_start
-                    page_ocr_time += lang_ocr_time
-                    ocr_time += lang_ocr_time
-                    
-                    logger.info(f"[OCR] ← Résultat {lang}: {len(texte)} caractères, temps: {lang_ocr_time:.2f}s")
-
+                    texte = _ocr_page_avec_langue(img_to_ocr, lang)
                     if len(texte) > len(meilleur_texte):
                         meilleur_texte = texte
                         meilleure_langue = lang
                     if len(meilleur_texte) >= SEUIL_SUFFISANT:
-                        logger.info(f"[OCR] Seuil {SEUIL_SUFFISANT} atteint, arrêt des tests")
-                        break  # résultat déjà exploitable, pas besoin de tester les autres langues
-
+                        break
+                ocr_page_end = time.time()
+                page_ocr_time = ocr_page_end - ocr_page_start
+                total_ocr_time += page_ocr_time
+                
+                # Log détaillé par page avec progression
+                logger.info(f"[OCR] Page {page_num}/{nb_pages} | conversion={page_conversion_time:.2f}s | preprocessing={page_preprocess_time:.2f}s | predict={page_ocr_time:.2f}s")
+                
                 # Dès la première page qui donne un résultat exploitable, on fige la
                 # langue dominante pour accélérer toutes les pages suivantes.
                 if langue_dominante is None and meilleure_langue and len(meilleur_texte) >= SEUIL_SUFFISANT:
                     langue_dominante = meilleure_langue
-                    logger.info(f"[OCR] Langue dominante FIGÉE: {langue_dominante} (dès la page {page_num})")
-
-                logger.info(f"[OCR] Meilleur résultat page {page_num}: {meilleure_langue} ({len(meilleur_texte)} caractères, temps OCR: {page_ocr_time:.2f}s)")
 
                 if meilleur_texte:
                     out.write(meilleur_texte)
                     out.write("\n\n")
                     total_chars += len(meilleur_texte)
-                    pages_ocrisees += 1
-
-                    # DIAGNOSTIC 4 : Vérification texte écrit
-                    logger.info(f"[OCR] Page {page_num}: {len(meilleur_texte)} caractères écrits")
-                else:
-                    logger.warning(f"[OCR] Page {page_num}: AUCUN texte extrait!")
-                    pages_ignorees += 1
                 
-                # GESTION MÉMOIRE : Libérer explicitement les ressources après chaque page
-                del pix  # Libérer le pixmap PyMuPDF
+                # Nettoyer les fichiers temporaires
                 if os.path.exists(page_img_path):
-                    os.remove(page_img_path)  # Supprimer l'image temporaire
+                    os.remove(page_img_path)
+                if processed_img_path and processed_img_path != page_img_path and os.path.exists(processed_img_path):
+                    os.remove(processed_img_path)
 
         doc.close()
     except Exception as exc:  # noqa: BLE001
         return 0, f"Erreur pendant l'OCR : {exc}"
 
     ocr_end = time.time()
-    total_ocr_time = ocr_end - ocr_start
+    total_ocr_time_all = ocr_end - ocr_start
     
     if total_chars > 0:
-        logger.info(f"[OCR] Succès OCR (PaddleOCR, {'/'.join(langues)}) : {total_chars} caractères extraits de {nb_pages} page(s).")
-        logger.info(f"[OCR] Pages OCRisées : {pages_ocrisees}, Pages ignorées : {pages_ignorees}")
-        logger.info(f"[PERF] OCR complet : {total_ocr_time:.2f}s (conversion: {conversion_time:.2f}s, OCR: {ocr_time:.2f}s)")
-        logger.info(f"[PERF] Temps moyen par page : {total_ocr_time/nb_pages:.2f}s")
+        logger.info(f"[OCR] Succès : {total_chars} caractères extraits de {nb_pages} pages")
+        logger.info(f"[PERF] Conversion PDF→image: {total_conversion_time:.2f}s")
+        logger.info(f"[PERF] Pré-traitement OpenCV: {total_preprocess_time:.2f}s")
+        logger.info(f"[PERF] OCR PaddleOCR: {total_ocr_time:.2f}s")
+        logger.info(f"[PERF] Temps total OCR: {total_ocr_time_all:.2f}s")
         
-        # Sauvegarder le résultat dans le cache pour les utilisations futures
-        # Uniquement si l'OCR a réussi (contenu non vide)
-        logger.info(f"[CACHE] Tentative de sauvegarde du cache pour {os.path.basename(path)}")
-        logger.info(f"[CACHE] Vérification fichier de sortie : {out_path}")
-        
+        # Cache sauvegarde
         try:
-            if os.path.exists(out_path):
-                with open(out_path, "r", encoding="utf-8") as f:
-                    extracted_text = f.read()
-                logger.info(f"[CACHE] Fichier lu : {len(extracted_text)} caractères")
-                
-                if extracted_text and len(extracted_text.strip()) > 0:
-                    logger.info(f"[CACHE] Appel de save_ocr_result pour {os.path.basename(path)}")
-                    save_ocr_result(path, extracted_text, total_ocr_time, nb_pages)
-                    logger.info(f"[CACHE] save_ocr_result terminé pour {os.path.basename(path)}")
-                else:
-                    logger.warning(f"[CACHE] Cache non sauvegardé : contenu vide pour {os.path.basename(path)}")
-            else:
-                logger.error(f"[CACHE] Fichier de sortie introuvable : {out_path}")
+            with open(out_path, "r", encoding="utf-8") as f:
+                extracted_text = f.read()
+            
+            if extracted_text and len(extracted_text.strip()) > 0:
+                save_ocr_result(path, extracted_text, total_ocr_time_all, nb_pages)
         except Exception as exc:
             logger.error(f"[CACHE] Erreur lors de la sauvegarde du cache : {exc}")
         
+    return total_chars, None
+
+
+def _ocr_page_worker(args: tuple) -> tuple[int, str, float, float, float]:
+    """
+    Worker pour OCR parallélisé d'une page.
+    
+    Args:
+        args: (page_num, page_img_path, langues, tmp_dir, SEUIL_SUFFISANT)
+    
+    Returns:
+        (page_num, texte, conversion_time, preprocess_time, ocr_time)
+    """
+    page_num, page_img_path, langues, tmp_dir, SEUIL_SUFFISANT = args
+    
+    page_conversion_time = 0.0
+    page_preprocess_time = 0.0
+    page_ocr_time = 0.0
+    
+    try:
+        # Pré-traitement OpenCV
+        preprocess_start = time.time()
+        processed_img_path = _preprocess_image_for_ocr(page_img_path)
+        preprocess_end = time.time()
+        page_preprocess_time = preprocess_end - preprocess_start
+        
+        # OCR avec tentative de plusieurs langues
+        ocr_page_start = time.time()
+        img_to_ocr = processed_img_path if processed_img_path else page_img_path
+        
+        meilleur_texte = ""
+        meilleure_langue = None
+        
+        for lang in langues:
+            texte = _ocr_page_avec_langue(img_to_ocr, lang)
+            if len(texte) > len(meilleur_texte):
+                meilleur_texte = texte
+                meilleure_langue = lang
+            if len(meilleur_texte) >= SEUIL_SUFFISANT:
+                break
+        
+        ocr_page_end = time.time()
+        page_ocr_time = ocr_page_end - ocr_page_start
+        
+        return (page_num, meilleur_texte, page_conversion_time, page_preprocess_time, page_ocr_time)
+        
+    except Exception as exc:
+        logger.error(f"[OCR] Erreur sur page {page_num}: {exc}")
+        return (page_num, "", page_conversion_time, page_preprocess_time, page_ocr_time)
+
+
+def _ocr_pdf_scanne_parallel(path: str, out_path: str) -> tuple[int, Optional[str]]:
+    """
+    OCR parallélisé pour un PDF scanné.
+    
+    Utilise ThreadPoolExecutor pour traiter plusieurs pages en parallèle.
+    """
+    import os  # Import au début pour éviter le bug de scope
+    
+    # Vérification du cache OCR avant de lancer l'OCR
+    cached_content, time_saved, cache_metadata = get_cached_ocr_result(path)
+    
+    if cached_content is not None:
+        # Cache HIT : écrire directement le contenu depuis le cache
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(cached_content)
+        logger.info(f"[PIPELINE] OCR ............ SKIP (cache HIT, temps économisé : {time_saved:.1f}s)")
+        return len(cached_content), None
+    
+    # Cache MISS : lancer l'OCR normalement
+    logger.info(f"[PIPELINE] OCR ............ RUN (cache MISS)")
+    
+    try:
+        import fitz  # PyMuPDF
+    except ImportError as exc:
+        return 0, f"PyMuPDF (fitz) non installé : {exc}"
+
+    langues = settings.ocr_langs.split(",") if settings.ocr_langs else ["fr"]
+    langues = [l.strip() for l in langues if l.strip()]
+
+    SEUIL_SUFFISANT = 30  # nb de caractères au-delà duquel une page est considérée bien reconnue
+    
+    ocr_start = time.time()
+    
+    try:
+        doc = fitz.open(path)
+        nb_pages = len(doc)
+
+        logger.info(f"[OCR] Fichier: {os.path.basename(path)}, Pages: {nb_pages}")
+        logger.info(f"[OCR] Mode: Parallèle (ThreadPoolExecutor)")
+        logger.info(f"[OCR] Début traitement parallèle...")
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # Étape 1 : Conversion PDF → images (séquentielle)
+            conversion_start = time.time()
+            page_paths = []
+            for page_num, page in enumerate(doc, start=1):
+                pix = page.get_pixmap(dpi=200)
+                page_img_path = os.path.join(tmp_dir, f"page_{page_num}.png")
+                pix.save(page_img_path)
+                page_paths.append((page_num, page_img_path))
+            conversion_end = time.time()
+            total_conversion_time = conversion_end - conversion_start
+            logger.info(f"[OCR] Conversion {nb_pages} pages: {total_conversion_time:.2f}s")
+            
+            # Étape 2 : OCR parallèle
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            
+            # Préparer les arguments pour chaque page
+            worker_args = [
+                (page_num, page_img_path, langues, tmp_dir, SEUIL_SUFFISANT)
+                for page_num, page_img_path in page_paths
+            ]
+            
+            # Nombre de workers = nombre de cœurs CPU, max 4
+            max_workers = min(4, os.cpu_count() or 1)
+            logger.info(f"[OCR] Workers: {max_workers}")
+            
+            ocr_parallel_start = time.time()
+            results = {}
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_page = {
+                    executor.submit(_ocr_page_worker, args): args[0]
+                    for args in worker_args
+                }
+                
+                for future in as_completed(future_to_page):
+                    page_num = future_to_page[future]
+                    try:
+                        page_num, texte, conv_time, preprocess_time, ocr_time = future.result()
+                        results[page_num] = (texte, conv_time, preprocess_time, ocr_time)
+                        
+                        # Log de progression
+                        logger.info(f"[OCR] Page {page_num}/{nb_pages} | predict={ocr_time:.2f}s")
+                    except Exception as exc:
+                        logger.error(f"[OCR] Erreur page {page_num}: {exc}")
+            
+            logger.info(f"[OCR] Traitement parallèle terminé")
+            
+            ocr_parallel_end = time.time()
+            total_ocr_time = ocr_parallel_end - ocr_parallel_start
+            
+            # Étape 3 : Assembler les résultats dans l'ordre
+            total_chars = 0
+            with open(out_path, "w", encoding="utf-8") as out:
+                for page_num in range(1, nb_pages + 1):
+                    if page_num in results:
+                        texte, conv_time, preprocess_time, ocr_time = results[page_num]
+                        if texte:
+                            out.write(texte)
+                            out.write("\n\n")
+                            total_chars += len(texte)
+            
+            doc.close()
+    except Exception as exc:  # noqa: BLE001
+        return 0, f"Erreur pendant l'OCR parallèle : {exc}"
+
+    ocr_end = time.time()
+    total_ocr_time_all = ocr_end - ocr_start
+    
+    if total_chars > 0:
+        logger.info(f"[OCR] Succès : {total_chars} caractères extraits de {nb_pages} pages")
+        logger.info(f"[PERF] Conversion PDF→image: {total_conversion_time:.2f}s")
+        logger.info(f"[PERF] OCR PaddleOCR (parallèle): {total_ocr_time:.2f}s")
+        logger.info(f"[PERF] Temps total OCR: {total_ocr_time_all:.2f}s")
+        
+        # Cache sauvegarde
+        try:
+            with open(out_path, "r", encoding="utf-8") as f:
+                extracted_text = f.read()
+            
+            if extracted_text and len(extracted_text.strip()) > 0:
+                save_ocr_result(path, extracted_text, total_ocr_time_all, nb_pages)
+        except Exception as exc:
+            logger.error(f"[CACHE] Erreur lors de la sauvegarde du cache : {exc}")
+    
     return total_chars, None
 
 
@@ -399,24 +622,57 @@ def _extract_pdf(path: str, out_path: str) -> tuple[int, Optional[str]]:
     Tente l'extraction native du PDF.
     Stratégie : pdfplumber en priorité (meilleure fidélité de mise en page et gestion des tableaux), 
     avec un repli sur pypdf en cas d'échec total (plus tolérant aux PDFs malformés).
+    
+    Détecte automatiquement si le PDF possède une couche texte exploitable.
+    Si oui, utilise l'extraction native. Si non, retourne 0 pour déclencher l'OCR.
+    
+    OPTIMISATION : La détection et l'extraction sont faites en un seul passage pour éviter
+    d'ouvrir le PDF deux fois avec pdfplumber.
     """
     logger.debug(f"[DIAG] Extraction PDF démarrée pour : {os.path.basename(path)}")
     total_chars = 0
+    is_scanned = False
+    
     try:
         import pdfplumber
         with pdfplumber.open(path) as pdf, open(out_path, "w", encoding="utf-8") as out:
+            total_pages = len(pdf.pages)
+            pages_with_text = 0
+            
+            # Premier passage : détection + extraction en une seule boucle
             for page in pdf.pages:
                 page_text = page.extract_text() or ""
+                
+                # Détection : compter les pages avec texte significatif
+                if page_text and len(page_text.strip()) > 50:
+                    pages_with_text += 1
+                
+                # Extraction : écrire le texte immédiatement
                 if page_text:
                     out.write(page_text)
                     out.write("\n\n")
                     total_chars += len(page_text)
+            
+            # Après le parcours, décider si le PDF est scanné
+            if total_pages > 0 and pages_with_text / total_pages < 0.5:
+                is_scanned = True
+                logger.info(f"[DIAG] PDF détecté comme scanné : {pages_with_text}/{total_pages} pages avec texte significatif")
+                # PDF scanné : retourner 0 pour déclencher l'OCR
+                # On supprime le fichier partiellement écrit
+                if os.path.exists(out_path):
+                    os.remove(out_path)
+                return 0, None
+            else:
+                logger.info(f"[DIAG] PDF détecté comme natif : {pages_with_text}/{total_pages} pages avec texte significatif")
+            
         if total_chars > 0:
-            logger.info(f"[DIAG] Succès extraction PDF (pdfplumber) : {total_chars} caractères.")
+            logger.info(f"[DIAG] Succès extraction PDF natif (pdfplumber) : {total_chars} caractères.")
             return total_chars, None
         
-        logger.warning("[DIAG] PDF vide : probablement un PDF scanné (image).")
-        return 0, None
+        # PDF natif mais vide : retourner 0 mais NE PAS déclencher l'OCR
+        # On marque ce cas spécifiquement pour éviter l'OCR inutile
+        logger.warning("[DIAG] PDF natif mais vide (0 caractères extraits). Pas d'OCR.")
+        return 0, "pdf_natif_vide"
     except Exception as pdfplumber_error:
         logger.debug(f"[DIAG] Échec pdfplumber, tentative de repli pypdf. Erreur: {pdfplumber_error}")
         try:
@@ -599,17 +855,19 @@ def extract_text(extracted_file: ExtractedFile, output_dir: str) -> ExtractionRe
         )
 
     out_path = _output_txt_path(extracted_file, output_dir)
+    
+    # Mesure du temps total du pipeline
+    pipeline_start = time.time()
 
     if extension == "pdf":
         nb_chars, erreur = _extract_pdf(extracted_file.absolute_path, out_path)
         if erreur:
             return ExtractionResult(None, 0, "echec", erreur)
 
-        # LOGIQUE DE BASCULE OCR : Si l'extraction native ne renvoie aucun caractère,
-        # on en déduit que le PDF est probablement une image scannée. On déclenche alors
-        # le pipeline OCR coûteux uniquement si nécessaire, optimisant ainsi les ressources globales.
-        if nb_chars == 0:
-            logger.info(f"[DIAG] Aucun texte natif — tentative OCR (PaddleOCR) pour {extracted_file.nom_fichier}.")
+        # LOGIQUE DE BASCULE OCR : Si l'extraction native ne renvoie aucun caractère
+        # ET que l'erreur n'est pas "pdf_natif_vide", on en déduit que le PDF est scanné
+        if nb_chars == 0 and erreur != "pdf_natif_vide":
+            logger.info(f"[OCR] Aucun texte natif — tentative OCR (PaddleOCR) pour {extracted_file.nom_fichier}.")
             nb_chars_ocr, erreur_ocr = _ocr_pdf_scanne(extracted_file.absolute_path, out_path)
             if erreur_ocr:
                 return ExtractionResult(
@@ -621,29 +879,14 @@ def extract_text(extracted_file: ExtractedFile, output_dir: str) -> ExtractionRe
                     out_path, 0, "non_supporte",
                     "Aucun texte extrait, même après OCR (image illisible, page blanche, ou qualité de scan trop faible).",
                 )
-
-            # DIAGNOSTIC 4 & 5 : Vérification texte final envoyé au LLM
-            logger.info(f"[DIAG-FINAL] === VERIFICATION TEXTE FINAL ===")
-            logger.info(f"[DIAG-FINAL] Fichier: {out_path}")
-            logger.info(f"[DIAG-FINAL] Caractères totaux: {nb_chars_ocr}")
-
-            try:
-                with open(out_path, "r", encoding="utf-8") as f:
-                    final_text = f.read()
-                    lines = final_text.split("\n")
-                    logger.info(f"[DIAG-FINAL] Nombre de lignes: {len(lines)}")
-                    logger.info(f"[DIAG-FINAL] Aperçu (500 premiers caractères): {final_text[:500]}")
-
-                    # Calculer la densité de texte (caractères par ligne moyenne)
-                    non_empty_lines = [l for l in lines if l.strip()]
-                    if non_empty_lines:
-                        avg_line_length = sum(len(l) for l in non_empty_lines) / len(non_empty_lines)
-                        logger.info(f"[DIAG-FINAL] Longueur moyenne ligne: {avg_line_length:.1f} caractères")
-            except Exception as e:
-                logger.error(f"[DIAG-FINAL] Erreur lecture fichier final: {e}")
-
+            pipeline_end = time.time()
+            logger.info(f"[PERF] Temps total pipeline: {pipeline_end - pipeline_start:.2f}s")
             return ExtractionResult(out_path, nb_chars_ocr, "succes", None)
-        return ExtractionResult(out_path, nb_chars, "succes", None)
+        
+        # PDF natif avec texte ou PDF natif vide (pas d'OCR)
+        pipeline_end = time.time()
+        logger.info(f"[PERF] Temps total pipeline: {pipeline_end - pipeline_start:.2f}s")
+        return ExtractionResult(out_path, nb_chars, "succes" if nb_chars > 0 else "echec", None if nb_chars > 0 else "PDF natif mais vide")
 
     if extension == "docx":
         nb_chars, erreur = _extract_docx(extracted_file.absolute_path, out_path)

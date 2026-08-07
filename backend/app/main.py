@@ -40,14 +40,14 @@ app.include_router(sous_traitants.router)
 app.include_router(equipe.router)
 app.include_router(equipe.projet_equipe_router)
 app.include_router(appel_offres_router.router)
-app.include_router(piece_dossier_router.router)  # ← AJOUTÉ, manquait — sans ça, /projets/{id}/pieces-dossier renvoyait 404
+app.include_router(piece_dossier_router.router)  #  AJOUTÉ, manquait — sans ça, /projets/{id}/pieces-dossier renvoyait 404
 
 @app.on_event("startup")
 def on_startup():
     # TEMPORAIREMENT DÉSACTIVÉ
     # start_scheduler()
     
-    # ← NOUVEAU : Réinitialisation des analyses bloquées au démarrage du serveur
+    #  NOUVEAU : Réinitialisation des analyses bloquées au démarrage du serveur
     db = SessionLocal()
     try:
         reset_analyses_bloquees(db)

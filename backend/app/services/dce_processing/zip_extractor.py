@@ -14,9 +14,12 @@ consomme pas de ressources de calcul pour des fichiers inutiles, corrompus ou ma
 """
 import os
 import zipfile
+import logging
 from dataclasses import dataclass
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 # Préfixes/suffixes de fichiers parasites à ignorer systématiquement.
 # CHOIX DE CONCEPTION : On filtre au niveau du nom de fichier pour éviter d'extraire 
@@ -70,11 +73,17 @@ def _is_junk(relative_path: str) -> bool:
     On vérifie à la fois la présence de marqueurs de répertoire (ex: __MACOSX) 
     et les motifs de noms de fichiers (préfixes pour les fichiers temporaires, 
     correspondance exacte ou suffixe pour les fichiers cachés comme .DS_Store).
+    On ignore également les fichiers .txt générés par notre pipeline (CPS.txt, RC.txt, etc.).
     """
     lowered = relative_path.lower()
     if any(marker in lowered for marker in _JUNK_DIR_MARKERS):
         return True
     filename = os.path.basename(lowered)
+    
+    # Ignorer les fichiers générés par notre pipeline (.txt)
+    if filename.endswith(".txt"):
+        return True
+    
     return any(filename.startswith(p) or filename == p for p in _JUNK_PATTERNS if not p.startswith("."))\
         or any(filename == p or filename.endswith(p) for p in _JUNK_PATTERNS if p.startswith("."))
 
@@ -114,6 +123,37 @@ def extract_zip(appel_offres_id: int, zip_path: str) -> list[ExtractedFile]:
         raise ZipExtractionError(f"Fichier zip introuvable : {zip_path}")
 
     target_dir = os.path.join(settings.dce_extracted_storage_path, str(appel_offres_id))
+    
+    # Instrumentation : vérifier si le dossier existe déjà
+    already_extracted = False
+    existing_files_count = 0
+    if os.path.exists(target_dir):
+        already_extracted = True
+        existing_files_count = len([f for f in os.listdir(target_dir) if os.path.isfile(os.path.join(target_dir, f))])
+        logger.info(f"[PIPELINE] UNZIP .......... SKIP (dossier existe déjà, {existing_files_count} fichiers présents)")
+        
+        # Retourner les fichiers déjà extraits
+        extracted: list[ExtractedFile] = []
+        for root, dirs, files in os.walk(target_dir):
+            for file in files:
+                if _is_junk(file):
+                    continue
+                full_path = os.path.join(root, file)
+                relative_path = os.path.relpath(full_path, target_dir)
+                filename_only = os.path.basename(file)
+                extension = os.path.splitext(filename_only)[1].lstrip(".").lower()
+                extracted.append(ExtractedFile(
+                    absolute_path=full_path,
+                    relative_path=relative_path,
+                    nom_fichier=filename_only,
+                    extension=extension,
+                    taille_octets=os.path.getsize(full_path),
+                ))
+        logger.info(f"[PIPELINE] UNZIP .......... SKIP ({len(extracted)} fichiers retournés)")
+        return extracted
+    else:
+        logger.info(f"[PIPELINE] UNZIP .......... RUN (dossier inexistant)")
+    
     os.makedirs(target_dir, exist_ok=True)
 
     extracted: list[ExtractedFile] = []
@@ -157,6 +197,7 @@ def extract_zip(appel_offres_id: int, zip_path: str) -> list[ExtractedFile]:
                     extension=extension,
                     taille_octets=os.path.getsize(destination),
                 ))
+        logger.info(f"[PIPELINE] UNZIP .......... RUN ({len(extracted)} fichiers extraits)")
     except zipfile.BadZipFile as exc:
         raise ZipExtractionError(f"Zip illisible/corrompu : {exc}") from exc
 

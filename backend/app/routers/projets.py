@@ -190,13 +190,56 @@ def get_historique_projet(projet_id: int, db: Session = Depends(get_db)):
     return [
         {
             "id": e.id,
-            "type_evenement": e.type_evenement,
-            "titre": e.titre,
-            "description": e.description,
-            "ancien_statut": e.ancien_statut,
-            "nouveau_statut": e.nouveau_statut,
-            "donnees": e.donnees,
-            "date_creation": e.date_creation.isoformat() if e.date_creation else None,
+            "type": e.type_evenement,
+            "label": e.titre,
+            "detail": e.description,
+            "metadata": {
+                "type": e.type_evenement,
+                "ancien_statut": e.ancien_statut,
+                "nouveau_statut": e.nouveau_statut,
+                "donnees": e.donnees,
+            } if e.donnees or e.ancien_statut or e.nouveau_statut else {"type": e.type_evenement},
+            "date": e.date_creation.isoformat().split("T")[0] if e.date_creation else None,
         }
         for e in evenements
     ]
+
+
+class EvenementRequest(BaseModel):
+    type: str
+    label: str
+    detail: str
+    metadata: dict = {}
+
+
+@router.post("/{projet_id}/historique", response_model=dict, status_code=201)
+def ajouter_evenement_historique(
+    projet_id: int,
+    data: EvenementRequest,
+    db: Session = Depends(get_db)
+):
+    """Ajoute un événement à l'historique d'un projet."""
+    projet = db.query(Projet).filter(Projet.id == projet_id).first()
+    if not projet:
+        raise HTTPException(status_code=404, detail="Projet introuvable")
+    
+    evenement = HistoriqueEvenement(
+        projet_id=projet_id,
+        type_evenement=data.type,
+        titre=data.label,
+        description=data.detail,
+        donnees=json.dumps(data.metadata) if data.metadata else None,
+    )
+    
+    db.add(evenement)
+    db.commit()
+    db.refresh(evenement)
+    
+    return {
+        "id": evenement.id,
+        "type": evenement.type_evenement,
+        "label": evenement.titre,
+        "detail": evenement.description,
+        "metadata": data.metadata,
+        "date": evenement.date_creation.isoformat().split("T")[0] if evenement.date_creation else None,
+    }

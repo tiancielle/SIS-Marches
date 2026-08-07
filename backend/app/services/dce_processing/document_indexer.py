@@ -10,11 +10,15 @@ Justification architecturale : Ce module assure la liaison entre le système de 
 robuste et traçable : chaque tentative d'extraction, qu'elle réussisse ou échoue, 
 est enregistrée en base pour garantir une auditabilité complète du pipeline d'ingestion.
 """
+import logging
+import os
 from sqlalchemy.orm import Session
 
 from app.models.dce_document import DceDocument
 from app.services.dce_processing.zip_extractor import ExtractedFile
 from app.services.dce_processing.text_extractor import extract_text
+
+logger = logging.getLogger(__name__)
 
 
 def index_documents(db: Session, appel_offres_id: int, extracted_files: list[ExtractedFile], output_dir: str) -> list[DceDocument]:
@@ -26,6 +30,13 @@ def index_documents(db: Session, appel_offres_id: int, extracted_files: list[Ext
     le pipeline peut être relancé à volonté (re-run) en cas de modification du code ou 
     d'ajout de fichiers, sans créer de doublons ni laisser de données orphelines obsolètes.
     """
+    # Instrumentation : vérifier si des DceDocument existent déjà
+    existing_docs = db.query(DceDocument).filter(DceDocument.appel_offres_id == appel_offres_id).all()
+    if existing_docs:
+        logger.info(f"[PIPELINE] INDEX ......... REBUILD ({len(existing_docs)} documents supprimés pour réindexation)")
+    else:
+        logger.info(f"[PIPELINE] INDEX ......... RUN (pas de documents existants)")
+    
     # Nettoyage des indexations précédentes pour repartir propre à chaque relance
     db.query(DceDocument).filter(DceDocument.appel_offres_id == appel_offres_id).delete()
     
@@ -35,11 +46,19 @@ def index_documents(db: Session, appel_offres_id: int, extracted_files: list[Ext
     db.flush()
 
     documents: list[DceDocument] = []
+    txt_files_rebuilt = 0
 
     for extracted_file in extracted_files:
+        # Instrumentation : vérifier si le .txt existe déjà
+        expected_txt_path = os.path.join(output_dir, f"{extracted_file.nom_fichier}.txt")
+        txt_exists = os.path.exists(expected_txt_path)
+        
         try:
             # Appel du module d'extraction (qui gère lui-même ses propres replis et l'OCR)
             result = extract_text(extracted_file, output_dir)
+            
+            if txt_exists:
+                txt_files_rebuilt += 1
             
             document = DceDocument(
                 appel_offres_id=appel_offres_id,
@@ -86,6 +105,10 @@ def index_documents(db: Session, appel_offres_id: int, extracted_files: list[Ext
     for document in documents:
         db.refresh(document)
     
-    return documents
-
+    # Instrumentation : log des fichiers .txt
+    if txt_files_rebuilt > 0:
+        logger.info(f"[PIPELINE] TXT ............ REBUILD ({txt_files_rebuilt} fichiers .txt régénérés)")
+    else:
+        logger.info(f"[PIPELINE] TXT ............ RUN (pas de fichiers .txt existants)")
+    
     return documents

@@ -192,7 +192,9 @@ def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False)
 
     # Instrumentation des performances - Début du chronométrage
     pipeline_start = time.time()
-    logger.info(f"[PIPELINE] Début pipeline AO {appel_offres_id}")
+    logger.info(f"{'='*50}")
+    logger.info(f"{'='*20} AO {appel_offres_id} {'='*20}")
+    logger.info(f"{'='*50}")
 
     # Initialisation de l'état de traitement
     analyse = _get_or_create_analyse(db, appel_offres_id)
@@ -205,9 +207,10 @@ def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False)
     # Cela économise de la bande passante et du stockage pour les AO qui ne seront jamais analysés.
     download_start = time.time()
     if not appel.url_cps:
+        logger.info(f"[PIPELINE] ZIP ............ RUN (téléchargement nécessaire)")
         download_result = download_dce_for(db, appel_offres_id)
         download_end = time.time()
-        logger.info(f"[PIPELINE] Téléchargement DCE : {download_end - download_start:.2f}s")
+        logger.info(f"[PIPELINE] ZIP ............ RUN (téléchargement terminé : {download_end - download_start:.2f}s)")
         if not download_result.get("success"):
             return _mark_failed(
                 db, analyse,
@@ -217,7 +220,7 @@ def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False)
         db.refresh(appel)  # url_cps vient d'être renseigné par download_dce_for
     else:
         download_end = time.time()
-        logger.info(f"[PIPELINE] Téléchargement DCE : déjà disponible (0.00s)")
+        logger.info(f"[PIPELINE] ZIP ............ SKIP (déjà disponible)")
 
     # --- ÉTAPE 1 : Ingestion et Validation (Dézippage) ---
     # Fail-Fast : si le conteneur (ZIP) est corrompu, on arrête immédiatement. 
@@ -251,9 +254,10 @@ def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False)
     # Cette étape agit comme un système de "Retrieval" : elle trie, pondère et tronque 
     # les documents pour maximiser la densité d'information utile tout en respectant la limite technique.
     context_start = time.time()
+    logger.info(f"[PIPELINE] CONTEXT ........ RUN")
     built_context = context_builder.build_context(db, appel_offres_id, settings.dce_context_max_chars)
     context_end = time.time()
-    logger.info(f"[PIPELINE] Construction contexte : {context_end - context_start:.2f}s")
+    logger.info(f"[PIPELINE] CONTEXT ........ RUN (terminé : {context_end - context_start:.2f}s)")
 
     if not built_context.texte.strip():
         return _mark_failed(
@@ -274,9 +278,10 @@ def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False)
     # --- ÉTAPE 4 : Inférence (Appel au modèle prédictif / LLM) ---
     # L'appel LLM retourne maintenant un fallback en cas d'erreur au lieu de lever une exception
     llm_start = time.time()
+    logger.info(f"[PIPELINE] LLM ............ RUN")
     result = ai_extractor.call_llm(appel, built_context.texte)
     llm_end = time.time()
-    logger.info(f"[LLM] Appel LLM : {llm_end - llm_start:.2f}s")
+    logger.info(f"[PIPELINE] LLM ............ RUN (terminé : {llm_end - llm_start:.2f}s)")
 
     # --- ÉTAPE 5 : Structuration du résultat et Évaluation de la qualité ---
     # Mapping de la sortie JSON du LLM vers le modèle de base de données.
@@ -298,72 +303,41 @@ def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False)
     # On compte le nombre de champs attendus qui ont été effectivement remplis.
     filled_fields = sum(1 for field in EXPECTED_FIELDS if result.get(field))
     is_fallback = result.get("resume", "").startswith("Analyse automatique non disponible")
-
-    # DIAGNOSTIC 1 : Audit détaillé des champs remplis
-    logger.info(f"[DIAG-VALIDATION] === AUDIT COMPLÉTUDE CHAMPS ===")
-    logger.info(f"[DIAG-VALIDATION] Nombre total de champs attendus: {len(EXPECTED_FIELDS)}")
-    logger.info(f"[DIAG-VALIDATION] Nombre de champs remplis: {filled_fields}")
-    logger.info(f"[DIAG-VALIDATION] Ratio: {filled_fields}/{len(EXPECTED_FIELDS)} ({filled_fields/len(EXPECTED_FIELDS)*100:.1f}%)")
-
-    empty_fields = []
-    for field in EXPECTED_FIELDS:
-        value = result.get(field)
-        is_empty = not value or (isinstance(value, list) and len(value) == 0)
-        if is_empty:
-            empty_fields.append(field)
-            logger.info(f"[DIAG-VALIDATION] Champ VIDE: {field} (valeur: {repr(value)})")
-        else:
-            # Calcul de la taille selon le type
-            if isinstance(value, str):
-                taille = len(str(value))
-            elif isinstance(value, list):
-                taille = len(value)
-            else:
-                taille = "N/A"
-            logger.info(f"[DIAG-VALIDATION] Champ REMPLI: {field} (type: {type(value).__name__}, taille: {taille})")
-
-    if empty_fields:
-        logger.info(f"[DIAG-VALIDATION] Champs vides: {empty_fields}")
-
-    # DIAGNOSTIC 2 : Audit de la logique métier actuelle
-    logger.info(f"[DIAG-METIER] === AUDIT LOGIQUE MÉTIER ===")
-    logger.info(f"[DIAG-METIER] Règle actuelle: filled_fields < len(EXPECTED_FIELDS) → statut='partielle'")
-    logger.info(f"[DIAG-METIER] Champ contextuels vides: {[f for f in empty_fields if f in CHAMPS_CONTEXTUELS]}")
-    logger.info(f"[DIAG-METIER] Champs indispensables vides: {[f for f in empty_fields if f in CHAMPS_INDISPENSABLES]}")
-
-    # Évaluation basée sur les champs indispensables
+    
+    # Évaluation basée sur les champs indispensables (règle métier corrigée)
     indispensable_filled = sum(1 for field in CHAMPS_INDISPENSABLES if result.get(field))
+    indispensable_missing = len(CHAMPS_INDISPENSABLES) - indispensable_filled
+    
+    # DIAGNOSTIC : Audit de la logique métier
+    logger.info(f"[DIAG-METIER] === AUDIT LOGIQUE MÉTIER ===")
+    logger.info(f"[DIAG-METIER] Règle: statut dépend uniquement des champs indispensables")
     logger.info(f"[DIAG-METIER] Champs indispensables remplis: {indispensable_filled}/{len(CHAMPS_INDISPENSABLES)}")
-
-    # DIAGNOSTIC 4 : Identification de la cause réelle du statut
+    logger.info(f"[DIAG-METIER] Champs contextuels vides: {[f for f in EXPECTED_FIELDS if not result.get(f) and f in CHAMPS_CONTEXTUELS]}")
+    
+    # DIAGNOSTIC : Identification de la cause réelle du statut
     cause_statut = ""
     if is_fallback:
         cause_statut = "LLM échoué (fallback utilisé)"
-    elif filled_fields == 0:
-        cause_statut = "LLM n'a extrait aucune information"
-    elif indispensable_filled < len(CHAMPS_INDISPENSABLES):
-        cause_statut = "Champs indispensables manquants"
-    elif filled_fields < len(EXPECTED_FIELDS):
-        cause_statut = "Champs contextuels manquants (non problématique)"
+    elif indispensable_filled == 0:
+        cause_statut = "LLM n'a extrait aucune information indispensable"
+    elif indispensable_missing > 0:
+        cause_statut = f"Champs indispensables manquants ({indispensable_missing})"
     else:
         cause_statut = "Extraction complète"
-
+    
     logger.info(f"[DIAG-STATUT] === DÉTERMINATION STATUT FINAL ===")
     logger.info(f"[DIAG-STATUT] Cause: {cause_statut}")
-    logger.info(f"[DIAG-STATUT] Statut assigné: {analyse.statut}")
-    if analyse.erreur:
-        logger.info(f"[DIAG-STATUT] Message erreur: {analyse.erreur}")
 
     if is_fallback:
         # Fallback utilisé (LLM échoué)
         analyse.statut = "partielle"
         analyse.erreur = "L'analyse automatique par IA n'a pas pu être complétée (erreur serveur ou API). Les informations affichées sont basiques. Veuillez consulter manuellement les documents."
-    elif filled_fields == 0:
+    elif indispensable_filled == 0:
         # Hallucination négative ou échec total du modèle à comprendre le contexte
         analyse.statut = "echec"
         analyse.erreur = "Le LLM n'a retourné aucune information exploitable pour ce DCE."
-    elif filled_fields < len(EXPECTED_FIELDS):
-        # Extraction partielle (certains champs manquent, mais le résultat a de la valeur)
+    elif indispensable_missing > 0:
+        # Champs indispensables manquants (extraction partielle)
         analyse.statut = "partielle"
         analyse.erreur = None
     else:
@@ -380,9 +354,23 @@ def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False)
     pipeline_end = time.time()
     total_duration = pipeline_end - pipeline_start
     
-    logger.info(f"[PIPELINE] Validation + persistance : {validation_end - validation_start:.2f}s")
-    logger.info(f"[PIPELINE] === SYNTHÈSE PERFORMANCES ===")
-    logger.info(f"[PIPELINE] Durée totale pipeline : {total_duration:.2f}s")
-    logger.info(f"[PIPELINE] Répartition : téléchargement={download_end - download_start:.2f}s, dézippage={unzip_end - unzip_start:.2f}s, extraction={extraction_end - extraction_start:.2f}s, contexte={context_end - context_start:.2f}s, LLM={llm_end - llm_start:.2f}s, validation={validation_end - validation_start:.2f}s")
+    # Log de synthèse lisible
+    zip_time = download_end - download_start
+    unzip_time = unzip_end - unzip_start
+    extraction_time = extraction_end - extraction_start
+    context_time = context_end - context_start
+    llm_time = llm_end - llm_start
+    save_time = validation_end - validation_start
+    
+    logger.info(f"{'='*50}")
+    logger.info(f"ZIP ............... {zip_time:.1f} s")
+    logger.info(f"UNZIP ............. {unzip_time:.1f} s")
+    logger.info(f"INDEX ............. {extraction_time:.1f} s")
+    logger.info(f"CONTEXT ........... {context_time:.1f} s")
+    logger.info(f"LLM ............... {llm_time:.1f} s")
+    logger.info(f"SAVE .............. {save_time:.1f} s")
+    logger.info(f"{'='*50}")
+    logger.info(f"TOTAL ............. {total_duration:.1f} s")
+    logger.info(f"{'='*50}")
     
     return analyse

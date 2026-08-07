@@ -126,7 +126,10 @@ def get_cached_ocr_result(file_path: str) -> Tuple[Optional[str], Optional[float
             time_saved = original_ocr_time if original_ocr_time > 0 else None
             
             logger.info(f"[CACHE] HIT pour {os.path.basename(file_path)} (hash: {file_hash[:8]}...)")
-            logger.info(f"[CACHE] Temps économisé : {time_saved:.1f}s si temps_original={original_ocr_time:.1f}s")
+            if time_saved is not None:
+                logger.info(f"[CACHE] Temps économisé : {time_saved:.1f}s si temps_original={original_ocr_time:.1f}s")
+            else:
+                logger.info(f"[CACHE] Temps économisé : inconnu (temps_original={original_ocr_time:.1f}s)")
             return content, time_saved, cached_data
         
         logger.info(f"[CACHE] Aucune donnée cache trouvée")

@@ -47,11 +47,33 @@ def index_documents(db: Session, appel_offres_id: int, extracted_files: list[Ext
 
     documents: list[DceDocument] = []
     txt_files_rebuilt = 0
+    
+    # DIAGNOSTIC : Vérifier le dossier de sortie
+    logger.info(f"[INDEX-DEBUG] output_dir = {output_dir}")
+    if os.path.exists(output_dir):
+        all_files = os.listdir(output_dir)
+        txt_files = [f for f in all_files if f.endswith('.txt')]
+        logger.info(f"[INDEX-DEBUG] Fichiers dans output_dir: {len(all_files)} fichiers, {len(txt_files)} fichiers .txt")
+        logger.info(f"[INDEX-DEBUG] Liste fichiers .txt: {txt_files[:10]}")  # Premier 10 fichiers
+    else:
+        logger.error(f"[INDEX-DEBUG] output_dir n'existe pas: {output_dir}")
 
     for extracted_file in extracted_files:
         # Instrumentation : vérifier si le .txt existe déjà
         expected_txt_path = os.path.join(output_dir, f"{extracted_file.nom_fichier}.txt")
         txt_exists = os.path.exists(expected_txt_path)
+        
+        logger.info(f"[INDEX-DEBUG] Fichier: {extracted_file.nom_fichier}")
+        logger.info(f"[INDEX-DEBUG] expected_txt_path = {expected_txt_path}")
+        logger.info(f"[INDEX-DEBUG] txt_exists = {txt_exists}")
+        
+        if txt_exists:
+            file_size = os.path.getsize(expected_txt_path)
+            logger.info(f"[INDEX-DEBUG] Taille fichier .txt = {file_size} octets")
+            with open(expected_txt_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                logger.info(f"[INDEX-DEBUG] Contenu fichier .txt = {len(content)} caractères")
+                logger.info(f"[INDEX-DEBUG] Aperçu = {content[:100] if content else '(vide)'}")
         
         try:
             # Appel du module d'extraction (qui gère lui-même ses propres replis et l'OCR)

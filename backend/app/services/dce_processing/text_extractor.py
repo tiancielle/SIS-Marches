@@ -16,9 +16,10 @@ import os
 # CONTRAINTE DE PERFORMANCE BACKEND : Les bibliothèques sous-jacentes (comme OpenCV via PaddleOCR 
 # ou NumPy) tentent par défaut d'utiliser tous les cœurs CPU disponibles. Dans un serveur web 
 # asynchrone (FastAPI), cela provoque une contention de threads et peut faire planter le serveur 
-# lors de requêtes concurrentes. On limite volontairement à 4 threads pour un usage prévisible des ressources.
-os.environ.setdefault("OMP_NUM_THREADS", "4")
-os.environ.setdefault("MKL_NUM_THREADS", "4")
+# lors de requêtes concurrentes. On limite volontairement à 2 threads pour éviter la sur-souscription
+# avec la parallélisation OCR (2 workers × 2 threads = 4 threads totaux, adapté à CPU 4 cœurs).
+os.environ.setdefault("OMP_NUM_THREADS", "2")
+os.environ.setdefault("MKL_NUM_THREADS", "2")
 
 import subprocess
 import shutil
@@ -55,10 +56,12 @@ def _get_paddle_ocr(lang: str):
         # redressement de document, orientation des lignes). Pour des documents administratifs 
         # (DCE) numérisés, ceux-ci sont généralement droits et bien formatés. 
         # Désactiver ces options réduit drastiquement le temps d'inférence sans perte de précision.
-        # enable_mkldnn=False est choisi pour éviter des segfaults ou fuites mémoire connus 
-        # dans certains environnements conteneurisés ou architectures CPU spécifiques.
+        # enable_mkldnn=False est maintenu pour éviter le bug PaddlePaddle 3.3.1 + oneDNN.
+        # PP-OCRv6_small est utilisé pour améliorer les performances sur CPU (2-3x plus rapide que medium).
         _paddle_ocr_instances[lang] = PaddleOCR(
             lang=lang,
+            text_detection_model_name="PP-OCRv6_small_det",
+            text_recognition_model_name="PP-OCRv6_small_rec",
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
             use_textline_orientation=False,
@@ -110,8 +113,8 @@ def _ocr_page_avec_langue(img_path: str, lang: str) -> str:
         
         ocr = _get_paddle_ocr(lang)
         
-        # Instrumentation : modèle chargé
-        logger.info(f"[OCR-DEBUG] Instance PaddleOCR pour lang={lang}")
+        # Instrumentation : modèle chargé + ID instance pour vérifier partage
+        logger.info(f"[OCR-DEBUG] Instance PaddleOCR pour lang={lang} id={id(ocr)}")
         
         # Instrumentation : temps predict() avec distinction premier appel vs suivants
         predict_start = time.time()
@@ -132,8 +135,10 @@ def _ocr_page_avec_langue(img_path: str, lang: str) -> str:
             extracted = _extract_ocr_result_texts(item)
             texts.extend(extracted)
 
-        logger.info(f"[OCR-DEBUG] Texte extrait: {len(texts)} blocs, {len(' '.join(texts))} caractères")
-        return "\n".join(texts)
+        texte_final = "\n".join(texts)
+        logger.info(f"[OCR-DEBUG] Texte extrait: {len(texts)} blocs, {len(texte_final)} caractères")
+        logger.info(f"[OCR-DEBUG] Aperçu texte: {texte_final[:200] if texte_final else '(vide)'}")
+        return texte_final
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"[OCR] Échec OCR (lang={lang}) sur {img_path} : {exc}")
         return ""
@@ -317,6 +322,9 @@ def _ocr_pdf_scanne(path: str, out_path: str) -> tuple[int, Optional[str]]:
                 
                 # Log détaillé par page avec progression
                 logger.info(f"[OCR] Page {page_num}/{nb_pages} | conversion={page_conversion_time:.2f}s | preprocessing={page_preprocess_time:.2f}s | predict={page_ocr_time:.2f}s")
+                logger.info(f"[OCR-DEBUG] Page {page_num}: texte brut = {len(meilleur_texte)} caractères")
+                if meilleur_texte:
+                    logger.info(f"[OCR-DEBUG] Page {page_num}: aperçu = {meilleur_texte[:100]}")
                 
                 # Dès la première page qui donne un résultat exploitable, on fige la
                 # langue dominante pour accélérer toutes les pages suivantes.
@@ -327,6 +335,9 @@ def _ocr_pdf_scanne(path: str, out_path: str) -> tuple[int, Optional[str]]:
                     out.write(meilleur_texte)
                     out.write("\n\n")
                     total_chars += len(meilleur_texte)
+                    logger.info(f"[OCR-DEBUG] Page {page_num}: cumul après écriture = {total_chars} caractères")
+                else:
+                    logger.warning(f"[OCR-DEBUG] Page {page_num}: aucun texte extrait")
                 
                 # Nettoyer les fichiers temporaires
                 if os.path.exists(page_img_path):
@@ -341,12 +352,25 @@ def _ocr_pdf_scanne(path: str, out_path: str) -> tuple[int, Optional[str]]:
     ocr_end = time.time()
     total_ocr_time_all = ocr_end - ocr_start
     
+    logger.info(f"[OCR-DEBUG] Fin OCR: total_chars = {total_chars}, out_path = {out_path}")
+    
     if total_chars > 0:
         logger.info(f"[OCR] Succès : {total_chars} caractères extraits de {nb_pages} pages")
         logger.info(f"[PERF] Conversion PDF→image: {total_conversion_time:.2f}s")
         logger.info(f"[PERF] Pré-traitement OpenCV: {total_preprocess_time:.2f}s")
         logger.info(f"[PERF] OCR PaddleOCR: {total_ocr_time:.2f}s")
         logger.info(f"[PERF] Temps total OCR: {total_ocr_time_all:.2f}s")
+        
+        # Vérifier le fichier écrit
+        if os.path.exists(out_path):
+            file_size = os.path.getsize(out_path)
+            logger.info(f"[OCR-DEBUG] Fichier .txt écrit: {out_path}, taille = {file_size} octets")
+            with open(out_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                logger.info(f"[OCR-DEBUG] Contenu fichier .txt: {len(content)} caractères")
+                logger.info(f"[OCR-DEBUG] Aperçu fichier .txt: {content[:200] if content else '(vide)'}")
+        else:
+            logger.error(f"[OCR-DEBUG] Fichier .txt NON créé: {out_path}")
         
         # Cache sauvegarde
         try:
@@ -357,6 +381,13 @@ def _ocr_pdf_scanne(path: str, out_path: str) -> tuple[int, Optional[str]]:
                 save_ocr_result(path, extracted_text, total_ocr_time_all, nb_pages)
         except Exception as exc:
             logger.error(f"[CACHE] Erreur lors de la sauvegarde du cache : {exc}")
+    else:
+        logger.warning(f"[OCR-DEBUG] Aucun caractère extrait ({total_chars} caractères)")
+        if os.path.exists(out_path):
+            file_size = os.path.getsize(out_path)
+            logger.warning(f"[OCR-DEBUG] Fichier .txt existe (vide?): {out_path}, taille = {file_size} octets")
+        else:
+            logger.warning(f"[OCR-DEBUG] Fichier .txt n'existe pas: {out_path}")
         
     return total_chars, None
 
@@ -371,11 +402,16 @@ def _ocr_page_worker(args: tuple) -> tuple[int, str, float, float, float]:
     Returns:
         (page_num, texte, conversion_time, preprocess_time, ocr_time)
     """
+    import threading
     page_num, page_img_path, langues, tmp_dir, SEUIL_SUFFISANT = args
+    worker_id = threading.current_thread().name
     
     page_conversion_time = 0.0
     page_preprocess_time = 0.0
     page_ocr_time = 0.0
+    
+    worker_start = time.time()
+    logger.info(f"[PARALLEL-DEBUG] START page={page_num} worker={worker_id} timestamp={worker_start:.3f}")
     
     try:
         # Pré-traitement OpenCV
@@ -386,6 +422,8 @@ def _ocr_page_worker(args: tuple) -> tuple[int, str, float, float, float]:
         
         # OCR avec tentative de plusieurs langues
         ocr_page_start = time.time()
+        logger.info(f"[PARALLEL-DEBUG] PREDICT_START page={page_num} worker={worker_id} timestamp={ocr_page_start:.3f}")
+        
         img_to_ocr = processed_img_path if processed_img_path else page_img_path
         
         meilleur_texte = ""
@@ -401,6 +439,10 @@ def _ocr_page_worker(args: tuple) -> tuple[int, str, float, float, float]:
         
         ocr_page_end = time.time()
         page_ocr_time = ocr_page_end - ocr_page_start
+        logger.info(f"[PARALLEL-DEBUG] PREDICT_END page={page_num} worker={worker_id} timestamp={ocr_page_end:.3f} duration={page_ocr_time:.3f}s")
+        
+        worker_end = time.time()
+        logger.info(f"[PARALLEL-DEBUG] END page={page_num} worker={worker_id} timestamp={worker_end:.3f} total_duration={worker_end - worker_start:.3f}s")
         
         return (page_num, meilleur_texte, page_conversion_time, page_preprocess_time, page_ocr_time)
         
@@ -416,6 +458,11 @@ def _ocr_pdf_scanne_parallel(path: str, out_path: str) -> tuple[int, Optional[st
     Utilise ThreadPoolExecutor pour traiter plusieurs pages en parallèle.
     """
     import os  # Import au début pour éviter le bug de scope
+    
+    # DIAGNOSTIC : Vérifier les variables d'environnement OMP/MKL
+    logger.info(f"[PARALLEL-DEBUG] OMP_NUM_THREADS={os.environ.get('OMP_NUM_THREADS', 'NOT_SET')}")
+    logger.info(f"[PARALLEL-DEBUG] MKL_NUM_THREADS={os.environ.get('MKL_NUM_THREADS', 'NOT_SET')}")
+    logger.info(f"[PARALLEL-DEBUG] CPU count={os.cpu_count()}")
     
     # Vérification du cache OCR avant de lancer l'OCR
     cached_content, time_saved, cache_metadata = get_cached_ocr_result(path)
@@ -472,8 +519,9 @@ def _ocr_pdf_scanne_parallel(path: str, out_path: str) -> tuple[int, Optional[st
                 for page_num, page_img_path in page_paths
             ]
             
-            # Nombre de workers = nombre de cœurs CPU, max 4
-            max_workers = min(4, os.cpu_count() or 1)
+            # Nombre de workers = 2 maximum pour éviter la sur-sousscription CPU
+            # (2 workers × 2 threads OMP = 4 threads totaux, adapté à CPU 4 cœurs)
+            max_workers = min(2, os.cpu_count() or 1)
             logger.info(f"[OCR] Workers: {max_workers}")
             
             ocr_parallel_start = time.time()

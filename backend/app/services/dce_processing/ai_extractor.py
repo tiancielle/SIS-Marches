@@ -15,6 +15,7 @@ filtré et hiérarchisé par le `context_builder`.
 """
 import json
 import re
+import time
 import logging
 
 from openai import OpenAI, RateLimitError, APIError, APIConnectionError
@@ -108,10 +109,17 @@ def _get_client() -> OpenAI:
     Fabrique (Factory) du client API.
     Centralise la logique de configuration, permettant d'injecter les bonnes 
     credentials et le bon endpoint en fonction des variables d'environnement.
+    
+    Désactive les retries automatiques pour les rate limits (429) pour éviter
+    de consommer inutilement le quota quand la limite est atteinte.
     """
     base_url = _PROVIDER_BASE_URLS.get(settings.llm_provider, _PROVIDER_BASE_URLS["gemini"])
     api_key = settings.gemini_api_key if settings.llm_provider == "gemini" else settings.github_models_token
-    return OpenAI(base_url=base_url, api_key=api_key)
+    return OpenAI(
+        base_url=base_url, 
+        api_key=api_key,
+        max_retries=0,  # Désactive les retries automatiques pour éviter de consommer le quota inutilement
+    )
 
 
 def _build_prompt(appel: AppelOffres, context_text: str) -> str:
@@ -177,8 +185,14 @@ def call_llm(appel: AppelOffres, context_text: str) -> dict:
     """
     client = _get_client()
     prompt = _build_prompt(appel, context_text)
+    
+    logger = logging.getLogger(__name__)
+    logger.info(f"[LLM] Appel Gemini pour AO {appel.id} (référence: {appel.reference})")
+    logger.info(f"[LLM] Modèle: {settings.dce_analysis_model}")
+    logger.info(f"[LLM] Taille contexte: {len(context_text)} caractères")
 
     try:
+        llm_start = time.time()
         response = client.chat.completions.create(
             model=settings.dce_analysis_model,
             messages=[
@@ -191,26 +205,40 @@ def call_llm(appel: AppelOffres, context_text: str) -> dict:
             temperature=0.2,
             max_tokens=settings.dce_llm_max_output_tokens,
         )
+        llm_end = time.time()
+        logger.info(f"[LLM] Appel réussi: {llm_end - llm_start:.2f}s")
+        
     except RateLimitError as exc:
         # Erreur transitoire de quota : on retourne un fallback au lieu de lever une exception
-        logging.getLogger(__name__).warning(
-            "[DIAG] Limite de débit atteinte pour AO %s : %s. Utilisation du fallback.",
-            appel.id, exc
+        logger.warning(
+            f"[LLM] RateLimitError pour AO {appel.id} : {exc}. Utilisation du fallback."
         )
         return _create_fallback_analysis(appel)
-    except (APIError, APIConnectionError) as exc:
+    except APIError as exc:
+        # Vérifier si c'est un 429 RESOURCE_EXHAUSTED
+        if hasattr(exc, 'status_code') and exc.status_code == 429:
+            logger.error(
+                f"[LLM] 429 RESOURCE_EXHAUSTED pour AO {appel.id} : {exc}. Quota Gemini dépassé. Utilisation du fallback."
+            )
+            logger.error(
+                f"[LLM] Message erreur: {str(exc)}"
+            )
+        else:
+            logger.warning(
+                f"[LLM] APIError pour AO {appel.id} : {exc}. Utilisation du fallback."
+            )
+        return _create_fallback_analysis(appel)
+    except APIConnectionError as exc:
         # Erreur d'infrastructure ou de réseau : on retourne un fallback
-        logging.getLogger(__name__).warning(
-            "[DIAG] Erreur API pour AO %s : %s. Utilisation du fallback.",
-            appel.id, exc
+        logger.warning(
+            f"[LLM] APIConnectionError pour AO {appel.id} : {exc}. Utilisation du fallback."
         )
         return _create_fallback_analysis(appel)
     except Exception as exc:  # noqa: BLE001
         # Filet de sécurité ultime : on capture TOUT pour éviter qu'une exception 
         # non prévue (ex: problème de sérialisation interne) ne fasse crasher le serveur.
-        logging.getLogger(__name__).error(
-            "[DIAG] Erreur inattendue lors de l'appel LLM pour AO %s : %s. Utilisation du fallback.",
-            appel.id, exc
+        logger.error(
+            f"[LLM] Erreur inattendue lors de l'appel LLM pour AO {appel.id} : {exc}. Utilisation du fallback."
         )
         return _create_fallback_analysis(appel)
 
@@ -242,10 +270,10 @@ def call_llm(appel: AppelOffres, context_text: str) -> dict:
     # VÉRIFICATION DE TYPE : On s'assure que la racine du JSON est bien un objet (dict) 
     # et non un tableau ou un scalaire, respectant ainsi le contrat de l'API.
     if not isinstance(parsed, dict):
-        logging.getLogger(__name__).warning(
-            "[DIAG] Réponse LLM JSON valide mais pas un objet pour AO %s. Utilisation du fallback.",
-            appel.id
+        logger.warning(
+            f"[LLM] Réponse LLM JSON valide mais pas un objet pour AO {appel.id}. Utilisation du fallback."
         )
         return _create_fallback_analysis(appel)
-
+    
+    logger.info(f"[LLM] Parsing JSON réussi pour AO {appel.id}")
     return parsed

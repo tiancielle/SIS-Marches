@@ -45,6 +45,202 @@ _paddle_ocr_instances: dict[str, object] = {}
 _first_predict_call = True
 
 
+def _is_cps_file(nom_fichier: str) -> bool:
+    """
+    Vérifie si le fichier est le CPS par son nom (Niveau 1).
+    
+    Le CPS peut avoir différents noms dans les DCE réels :
+    - CPS.pdf, CPS AOO 114 TTH HO 26.pdf
+    - AO N° 119-DCL-2026 CAF+CTP+DETAIL.pdf
+    - CONSULTATION.pdf, REGLEMENT.pdf, CAHIER DES CHARGES.pdf
+    
+    Critères de détection :
+    1. Contient "CPS" (critère principal)
+    2. Contient "AO" ou "APPEL" + mots-clés CPS (CONSULTATION, REGLEMENT, CAHIER, DETAIL)
+    3. Contient des mots-clés typiques du CPS (CONSULTATION, REGLEMENT, CAHIER)
+    
+    Cette fonction est utilisée pour l'optimisation CPS Only : seul le CPS scanné
+    est traité par OCR, les autres documents scannés sont ignorés.
+    """
+    nom_lower = nom_fichier.lower()
+    
+    # Critère 1 : Contient "CPS"
+    if "cps" in nom_lower:
+        return True
+    
+    # Critère 2 : Contient "AO" ou "APPEL" + mots-clés CPS
+    if "ao" in nom_lower or "appel" in nom_lower:
+        cps_keywords = ["consultation", "reglement", "cahier", "detail", "charges"]
+        if any(keyword in nom_lower for keyword in cps_keywords):
+            return True
+    
+    # Critère 3 : Contient des mots-clés typiques du CPS
+    cps_keywords = ["consultation", "reglement", "cahier des charges", "cdc"]
+    if any(keyword in nom_lower for keyword in cps_keywords):
+        return True
+    
+    return False
+
+
+def _find_cps_candidates(extracted_files: list) -> list:
+    """
+    Cherche des candidats CPS suspects parmi les fichiers extraits (Niveau 2).
+    
+    Critères de sélection :
+    - PDF scanné (déterminé par l'extraction native)
+    - Taille importante (signal fort)
+    - Nombre de pages important
+    - Nom contenant des mots-clés suspects (AO, CAF, CTP, DETAIL, CAHIER, etc.)
+    
+    Retourne les candidats classés par pertinence (taille décroissante).
+    """
+    from app.services.dce_processing.zip_extractor import ExtractedFile
+    
+    candidates = []
+    
+    for extracted_file in extracted_files:
+        if extracted_file.extension != "pdf":
+            continue
+        
+        # Critère : taille importante (>= 1 Mo)
+        if extracted_file.taille_octets < 1024 * 1024:
+            continue
+        
+        # Critère : nom contenant des mots-clés suspects
+        nom_lower = extracted_file.nom_fichier.lower()
+        suspect_keywords = ["ao", "appel", "caf", "ctp", "detail", "cahier", "consultation", "reglement"]
+        has_suspect_name = any(keyword in nom_lower for keyword in suspect_keywords)
+        
+        # Score de pertinence
+        score = extracted_file.taille_octets
+        if has_suspect_name:
+            score *= 1.5  # Bonus pour le nom suspect
+        
+        candidates.append({
+            "file": extracted_file,
+            "score": score,
+            "taille": extracted_file.taille_octets,
+            "has_suspect_name": has_suspect_name
+        })
+    
+    # Classer par score décroissant
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+    
+    # Retourner les 3 meilleurs candidats maximum
+    return candidates[:3]
+
+
+def _verify_cps_candidate(candidate: dict, output_dir: str) -> tuple[bool, int]:
+    """
+    Vérifie si un candidat est vraiment le CPS en analysant sa première page (Niveau 3).
+    
+    Processus :
+    1. Convertir uniquement la première page
+    2. Lancer OCR uniquement sur cette première page
+    3. Analyser le texte obtenu pour des indices CPS
+    
+    Retourne (is_cps, score).
+    """
+    from app.services.dce_processing.zip_extractor import ExtractedFile
+    
+    extracted_file = candidate["file"]
+    
+    try:
+        import fitz  # PyMuPDF
+        import tempfile
+        import os
+    except ImportError:
+        return False, 0
+    
+    logger.info(f"[CPS-DETECT] Vérification première page : {extracted_file.nom_fichier}")
+    
+    try:
+        doc = fitz.open(extracted_file.absolute_path)
+        page = doc[0]  # Première page
+        
+        # Conversion première page → image
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            pix = page.get_pixmap(dpi=200)
+            pix.save(tmp.name)
+            page_img_path = tmp.name
+        
+        doc.close()
+        
+        # OCR première page
+        try:
+            from paddleocr import PaddleOCR
+            ocr = PaddleOCR(
+                lang='fr',
+                text_detection_model_name="PP-OCRv6_small_det",
+                text_recognition_model_name="PP-OCRv6_small_rec",
+                use_doc_orientation_classify=False,
+                use_doc_unwarping=False,
+                use_textline_orientation=False,
+                enable_mkldnn=False,
+            )
+            
+            result = ocr.predict(page_img_path)
+            texts = []
+            for item in result:
+                if isinstance(item, dict):
+                    rec_texts = item.get("rec_texts", [])
+                    texts.extend(rec_texts)
+                elif hasattr(item, "rec_texts"):
+                    texts.extend(item.rec_texts)
+            
+            texte = "\n".join(texts).lower()
+            
+            # Nettoyer le fichier temporaire
+            try:
+                os.remove(page_img_path)
+            except:
+                pass
+            
+            # Analyser le texte pour des indices CPS
+            cps_indicators = [
+                "cahier des prescriptions spéciales",
+                "cahier des prescriptions spéciales",
+                "cps",
+                "article",
+                "objet",
+                "lot",
+                "marché",
+                "appel d'offres",
+                "prescriptions",
+                "cahier des charges",
+                "règlement",
+                "spécifications"
+            ]
+            
+            score = 0
+            found_indicators = []
+            
+            for indicator in cps_indicators:
+                if indicator in texte:
+                    score += 1
+                    found_indicators.append(indicator)
+            
+            logger.info(f"[CPS-DETECT] Score CPS = {score} (indices trouvés : {found_indicators})")
+            
+            # Seuil de confirmation : au moins 3 indices
+            is_cps = score >= 3
+            
+            if is_cps:
+                logger.info(f"[CPS-DETECT] CPS confirmé → OCR complet")
+            else:
+                logger.info(f"[CPS-DETECT] Candidat rejeté (score {score} < 3)")
+            
+            return is_cps, score
+            
+        except Exception as exc:
+            logger.error(f"[CPS-DETECT] Erreur OCR première page : {exc}")
+            return False, 0
+            
+    except Exception as exc:
+        logger.error(f"[CPS-DETECT] Erreur vérification candidat : {exc}")
+        return False, 0
+
+
 def _get_paddle_ocr(lang: str):
     """Récupère ou initialise l'instance PaddleOCR pour une langue donnée."""
     if lang not in _paddle_ocr_instances:
@@ -65,7 +261,7 @@ def _get_paddle_ocr(lang: str):
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
             use_textline_orientation=False,
-            enable_mkldnn=False,
+            enable_mkldnn=True,
         )
         logger.info(f"[DIAG] PaddleOCR (lang={lang}) chargé avec succès.")
     return _paddle_ocr_instances[lang]
@@ -394,26 +590,48 @@ def _ocr_pdf_scanne(path: str, out_path: str) -> tuple[int, Optional[str]]:
 
 def _ocr_page_worker(args: tuple) -> tuple[int, str, float, float, float]:
     """
-    Worker pour OCR parallélisé d'une page.
+    Worker pour OCR parallélisé d'une page (ProcessPoolExecutor).
+    
+    Chaque processus worker effectue sa propre conversion PDF → image et crée sa propre instance PaddleOCR.
     
     Args:
-        args: (page_num, page_img_path, langues, tmp_dir, SEUIL_SUFFISANT)
+        args: (pdf_path, page_num, langues, SEUIL_SUFFISANT, dpi)
     
     Returns:
         (page_num, texte, conversion_time, preprocess_time, ocr_time)
     """
-    import threading
-    page_num, page_img_path, langues, tmp_dir, SEUIL_SUFFISANT = args
-    worker_id = threading.current_thread().name
+    pdf_path, page_num, langues, SEUIL_SUFFISANT, dpi = args
     
     page_conversion_time = 0.0
     page_preprocess_time = 0.0
     page_ocr_time = 0.0
     
-    worker_start = time.time()
-    logger.info(f"[PARALLEL-DEBUG] START page={page_num} worker={worker_id} timestamp={worker_start:.3f}")
+    tmp_path = None
+    processed_img_path = None
+    meilleur_texte = ""
     
     try:
+        import fitz  # PyMuPDF
+        import os  # Import os pour la gestion des fichiers temporaires
+        
+        # Conversion PDF → image dans ce processus worker
+        conv_start = time.time()
+        doc = fitz.open(pdf_path)
+        page = doc[page_num - 1]  # 0-indexed
+        pix = page.get_pixmap(dpi=dpi)
+        doc.close()
+        
+        # Utiliser tempfile.mkstemp pour éviter le problème de verrouillage Windows
+        import tempfile
+        fd, tmp_path = tempfile.mkstemp(suffix=".png")
+        os.close(fd)  # Fermer immédiatement le handle Windows
+        
+        page_img_path = tmp_path
+        pix.save(page_img_path)
+        
+        conv_end = time.time()
+        page_conversion_time = conv_end - conv_start
+        
         # Pré-traitement OpenCV
         preprocess_start = time.time()
         processed_img_path = _preprocess_image_for_ocr(page_img_path)
@@ -422,15 +640,30 @@ def _ocr_page_worker(args: tuple) -> tuple[int, str, float, float, float]:
         
         # OCR avec tentative de plusieurs langues
         ocr_page_start = time.time()
-        logger.info(f"[PARALLEL-DEBUG] PREDICT_START page={page_num} worker={worker_id} timestamp={ocr_page_start:.3f}")
-        
         img_to_ocr = processed_img_path if processed_img_path else page_img_path
         
-        meilleur_texte = ""
         meilleure_langue = None
         
+        # Créer une instance PaddleOCR locale pour ce processus worker
+        from paddleocr import PaddleOCR
+        ocr_local = PaddleOCR(
+            lang=langues[0] if langues else "fr",
+            text_detection_model_name="PP-OCRv6_small_det",
+            text_recognition_model_name="PP-OCRv6_small_rec",
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
+            enable_mkldnn=False,
+        )
+        
         for lang in langues:
-            texte = _ocr_page_avec_langue(img_to_ocr, lang)
+            result = ocr_local.predict(img_to_ocr)
+            texts = []
+            for item in result:
+                extracted = _extract_ocr_result_texts(item)
+                texts.extend(extracted)
+            texte = "\n".join(texts)
+            
             if len(texte) > len(meilleur_texte):
                 meilleur_texte = texte
                 meilleure_langue = lang
@@ -439,30 +672,32 @@ def _ocr_page_worker(args: tuple) -> tuple[int, str, float, float, float]:
         
         ocr_page_end = time.time()
         page_ocr_time = ocr_page_end - ocr_page_start
-        logger.info(f"[PARALLEL-DEBUG] PREDICT_END page={page_num} worker={worker_id} timestamp={ocr_page_end:.3f} duration={page_ocr_time:.3f}s")
-        
-        worker_end = time.time()
-        logger.info(f"[PARALLEL-DEBUG] END page={page_num} worker={worker_id} timestamp={worker_end:.3f} total_duration={worker_end - worker_start:.3f}s")
-        
-        return (page_num, meilleur_texte, page_conversion_time, page_preprocess_time, page_ocr_time)
         
     except Exception as exc:
         logger.error(f"[OCR] Erreur sur page {page_num}: {exc}")
-        return (page_num, "", page_conversion_time, page_preprocess_time, page_ocr_time)
+    finally:
+        # Nettoyer les fichiers temporaires
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except PermissionError:
+                logger.warning(f"[OCR] Impossible de supprimer le fichier temporaire : {tmp_path}")
+        if processed_img_path and processed_img_path != page_img_path and os.path.exists(processed_img_path):
+            try:
+                os.remove(processed_img_path)
+            except PermissionError:
+                logger.warning(f"[OCR] Impossible de supprimer le fichier pré-traité : {processed_img_path}")
+    
+    return (page_num, meilleur_texte, page_conversion_time, page_preprocess_time, page_ocr_time)
 
 
 def _ocr_pdf_scanne_parallel(path: str, out_path: str) -> tuple[int, Optional[str]]:
     """
     OCR parallélisé pour un PDF scanné.
     
-    Utilise ThreadPoolExecutor pour traiter plusieurs pages en parallèle.
+    Utilise ProcessPoolExecutor pour traiter plusieurs pages en parallèle avec des processus indépendants.
     """
     import os  # Import au début pour éviter le bug de scope
-    
-    # DIAGNOSTIC : Vérifier les variables d'environnement OMP/MKL
-    logger.info(f"[PARALLEL-DEBUG] OMP_NUM_THREADS={os.environ.get('OMP_NUM_THREADS', 'NOT_SET')}")
-    logger.info(f"[PARALLEL-DEBUG] MKL_NUM_THREADS={os.environ.get('MKL_NUM_THREADS', 'NOT_SET')}")
-    logger.info(f"[PARALLEL-DEBUG] CPU count={os.cpu_count()}")
     
     # Vérification du cache OCR avant de lancer l'OCR
     cached_content, time_saved, cache_metadata = get_cached_ocr_result(path)
@@ -486,81 +721,77 @@ def _ocr_pdf_scanne_parallel(path: str, out_path: str) -> tuple[int, Optional[st
     langues = [l.strip() for l in langues if l.strip()]
 
     SEUIL_SUFFISANT = 30  # nb de caractères au-delà duquel une page est considérée bien reconnue
+    dpi = 200  # DPI pour la conversion
     
     ocr_start = time.time()
+    
+    total_conversion_time = 0
+    total_preprocess_time = 0
+    total_ocr_time = 0
+    total_chars = 0
     
     try:
         doc = fitz.open(path)
         nb_pages = len(doc)
 
         logger.info(f"[OCR] Fichier: {os.path.basename(path)}, Pages: {nb_pages}")
-        logger.info(f"[OCR] Mode: Parallèle (ThreadPoolExecutor)")
+        logger.info(f"[OCR] Mode: Parallèle (ProcessPoolExecutor)")
         logger.info(f"[OCR] Début traitement parallèle...")
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            # Étape 1 : Conversion PDF → images (séquentielle)
-            conversion_start = time.time()
-            page_paths = []
-            for page_num, page in enumerate(doc, start=1):
-                pix = page.get_pixmap(dpi=200)
-                page_img_path = os.path.join(tmp_dir, f"page_{page_num}.png")
-                pix.save(page_img_path)
-                page_paths.append((page_num, page_img_path))
-            conversion_end = time.time()
-            total_conversion_time = conversion_end - conversion_start
-            logger.info(f"[OCR] Conversion {nb_pages} pages: {total_conversion_time:.2f}s")
+        
+        # Étape : OCR parallèle avec ProcessPoolExecutor
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        
+        # Préparer les arguments pour chaque page
+        worker_args = [
+            (path, page_num, langues, SEUIL_SUFFISANT, dpi)
+            for page_num in range(1, nb_pages + 1)
+        ]
+        
+        # Nombre de workers = 2 maximum pour éviter la sur-sousscription CPU
+        # (2 workers × 2 threads OMP = 4 threads totaux, adapté à CPU 4 cœurs)
+        max_workers = min(2, os.cpu_count() or 1)
+        logger.info(f"[OCR] Workers: {max_workers}")
+        
+        ocr_parallel_start = time.time()
+        results = {}
+        
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            future_to_page = {
+                executor.submit(_ocr_page_worker, args): args[1]
+                for args in worker_args
+            }
             
-            # Étape 2 : OCR parallèle
-            from concurrent.futures import ThreadPoolExecutor, as_completed
-            
-            # Préparer les arguments pour chaque page
-            worker_args = [
-                (page_num, page_img_path, langues, tmp_dir, SEUIL_SUFFISANT)
-                for page_num, page_img_path in page_paths
-            ]
-            
-            # Nombre de workers = 2 maximum pour éviter la sur-sousscription CPU
-            # (2 workers × 2 threads OMP = 4 threads totaux, adapté à CPU 4 cœurs)
-            max_workers = min(2, os.cpu_count() or 1)
-            logger.info(f"[OCR] Workers: {max_workers}")
-            
-            ocr_parallel_start = time.time()
-            results = {}
-            
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_page = {
-                    executor.submit(_ocr_page_worker, args): args[0]
-                    for args in worker_args
-                }
-                
-                for future in as_completed(future_to_page):
-                    page_num = future_to_page[future]
-                    try:
-                        page_num, texte, conv_time, preprocess_time, ocr_time = future.result()
-                        results[page_num] = (texte, conv_time, preprocess_time, ocr_time)
-                        
-                        # Log de progression
-                        logger.info(f"[OCR] Page {page_num}/{nb_pages} | predict={ocr_time:.2f}s")
-                    except Exception as exc:
-                        logger.error(f"[OCR] Erreur page {page_num}: {exc}")
-            
-            logger.info(f"[OCR] Traitement parallèle terminé")
-            
-            ocr_parallel_end = time.time()
-            total_ocr_time = ocr_parallel_end - ocr_parallel_start
-            
-            # Étape 3 : Assembler les résultats dans l'ordre
-            total_chars = 0
-            with open(out_path, "w", encoding="utf-8") as out:
-                for page_num in range(1, nb_pages + 1):
-                    if page_num in results:
-                        texte, conv_time, preprocess_time, ocr_time = results[page_num]
-                        if texte:
-                            out.write(texte)
-                            out.write("\n\n")
-                            total_chars += len(texte)
-            
-            doc.close()
+            for future in as_completed(future_to_page):
+                page_num = future_to_page[future]
+                try:
+                    page_num, texte, conv_time, preprocess_time, ocr_time = future.result()
+                    results[page_num] = (texte, conv_time, preprocess_time, ocr_time)
+                    
+                    # Accumuler les temps
+                    total_conversion_time += conv_time
+                    total_preprocess_time += preprocess_time
+                    
+                    # Log de progression
+                    logger.info(f"[OCR] Page {page_num}/{nb_pages} | predict={ocr_time:.2f}s")
+                except Exception as exc:
+                    logger.error(f"[OCR] Erreur page {page_num}: {exc}")
+        
+        logger.info(f"[OCR] Traitement parallèle terminé")
+        
+        ocr_parallel_end = time.time()
+        total_ocr_time = ocr_parallel_end - ocr_parallel_start
+        
+        # Assembler les résultats dans l'ordre
+        with open(out_path, "w", encoding="utf-8") as out:
+            for page_num in range(1, nb_pages + 1):
+                if page_num in results:
+                    texte, conv_time, preprocess_time, ocr_time = results[page_num]
+                    if texte:
+                        out.write(texte)
+                        out.write("\n\n")
+                        total_chars += len(texte)
+        
+        doc.close()
     except Exception as exc:  # noqa: BLE001
         return 0, f"Erreur pendant l'OCR parallèle : {exc}"
 
@@ -570,6 +801,7 @@ def _ocr_pdf_scanne_parallel(path: str, out_path: str) -> tuple[int, Optional[st
     if total_chars > 0:
         logger.info(f"[OCR] Succès : {total_chars} caractères extraits de {nb_pages} pages")
         logger.info(f"[PERF] Conversion PDF→image: {total_conversion_time:.2f}s")
+        logger.info(f"[PERF] Pré-traitement OpenCV: {total_preprocess_time:.2f}s")
         logger.info(f"[PERF] OCR PaddleOCR (parallèle): {total_ocr_time:.2f}s")
         logger.info(f"[PERF] Temps total OCR: {total_ocr_time_all:.2f}s")
         
@@ -884,7 +1116,7 @@ def _extract_xlsx(path: str, out_path: str) -> tuple[int, Optional[str]]:
         return 0, str(exc)
 
 
-def extract_text(extracted_file: ExtractedFile, output_dir: str) -> ExtractionResult:
+def extract_text(extracted_file: ExtractedFile, output_dir: str, is_cps_confirmed: bool = False) -> ExtractionResult:
     """
     Point d'entrée principal du pipeline d'extraction.
     Agit comme un routeur qui dispatche vers la méthode adaptée selon l'extension,
@@ -915,8 +1147,15 @@ def extract_text(extracted_file: ExtractedFile, output_dir: str) -> ExtractionRe
         # LOGIQUE DE BASCULE OCR : Si l'extraction native ne renvoie aucun caractère
         # ET que l'erreur n'est pas "pdf_natif_vide", on en déduit que le PDF est scanné
         if nb_chars == 0 and erreur != "pdf_natif_vide":
-            logger.info(f"[OCR] Aucun texte natif — tentative OCR (PaddleOCR) pour {extracted_file.nom_fichier}.")
-            nb_chars_ocr, erreur_ocr = _ocr_pdf_scanne(extracted_file.absolute_path, out_path)
+            # OPTIMISATION CPS ONLY : Ne lancer l'OCR que sur le CPS scanné confirmé
+            # Les autres documents scannés sont ignorés pour gagner du temps
+            if is_cps_confirmed:
+                logger.info(f"[OCR] CPS scanné confirmé — tentative OCR (PaddleOCR) pour {extracted_file.nom_fichier}.")
+                nb_chars_ocr, erreur_ocr = _ocr_pdf_scanne_parallel(extracted_file.absolute_path, out_path)
+            else:
+                logger.info(f"[OCR] Document scanné non-CPS ignoré pour optimisation : {extracted_file.nom_fichier}")
+                # Retourner un statut spécifique pour document scanné ignoré
+                return ExtractionResult(None, 0, "ocr_ignore", "Document scanné non-CPS ignoré pour optimisation du temps de traitement")
             if erreur_ocr:
                 return ExtractionResult(
                     out_path, 0, "non_supporte",

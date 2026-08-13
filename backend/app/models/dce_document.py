@@ -40,9 +40,9 @@ class DceDocument(Base):
 
     # MACHINE À ÉTATS (State Machine) : Ce champ permet au pipeline de signaler 
     # précisément pourquoi un document n'a pas pu être traité (ex: format non supporté, 
-    # fichier corrompu, ou échec OCR), offrant une observabilité granulaire sans faire 
-    # échouer l'ingestion globale du DCE (dégradation gracieuse).
-    # Valeurs possibles : succes | echec | non_supporte
+    # fichier corrompu, échec OCR, ou document scanné non-CPS ignoré), offrant une 
+    # observabilité granulaire sans faire échouer l'ingestion globale du DCE (dégradation gracieuse).
+    # Valeurs possibles : succes | echec | non_supporte | ocr_ignore
     statut_extraction = Column(String, nullable=False, default="en_attente")
     erreur = Column(Text, nullable=True)
 

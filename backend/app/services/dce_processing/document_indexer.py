@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.models.dce_document import DceDocument
 from app.services.dce_processing.zip_extractor import ExtractedFile
-from app.services.dce_processing.text_extractor import extract_text
+from app.services.dce_processing.text_extractor import extract_text, ExtractionResult
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,7 @@ def index_documents(db: Session, appel_offres_id: int, extracted_files: list[Ext
 
     documents: list[DceDocument] = []
     txt_files_rebuilt = 0
+    txt_files_reused = 0
     
     # DIAGNOSTIC : Vérifier le dossier de sortie
     logger.info(f"[INDEX-DEBUG] output_dir = {output_dir}")
@@ -67,20 +68,24 @@ def index_documents(db: Session, appel_offres_id: int, extracted_files: list[Ext
         logger.info(f"[INDEX-DEBUG] expected_txt_path = {expected_txt_path}")
         logger.info(f"[INDEX-DEBUG] txt_exists = {txt_exists}")
         
-        if txt_exists:
-            file_size = os.path.getsize(expected_txt_path)
-            logger.info(f"[INDEX-DEBUG] Taille fichier .txt = {file_size} octets")
-            with open(expected_txt_path, "r", encoding="utf-8") as f:
-                content = f.read()
-                logger.info(f"[INDEX-DEBUG] Contenu fichier .txt = {len(content)} caractères")
-                logger.info(f"[INDEX-DEBUG] Aperçu = {content[:100] if content else '(vide)'}")
-        
         try:
-            # Appel du module d'extraction (qui gère lui-même ses propres replis et l'OCR)
-            result = extract_text(extracted_file, output_dir)
-            
             if txt_exists:
-                txt_files_rebuilt += 1
+                # Réutiliser le texte existant (éviter l'OCR coûteux)
+                logger.info(f"[INDEX] Texte déjà disponible pour {extracted_file.nom_fichier} — réutilisation")
+                with open(expected_txt_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                result = ExtractionResult(
+                    texte_extrait_path=expected_txt_path,
+                    nb_caracteres=len(content),
+                    statut="succes",
+                    erreur=None
+                )
+                txt_files_reused += 1
+            else:
+                # Appel du module d'extraction (qui gère lui-même ses propres replis et l'OCR)
+                # Passer le flag is_cps_confirmed si le fichier a été marqué par le pipeline
+                is_cps_confirmed = getattr(extracted_file, '_is_cps_confirmed', False)
+                result = extract_text(extracted_file, output_dir, is_cps_confirmed=is_cps_confirmed)
             
             document = DceDocument(
                 appel_offres_id=appel_offres_id,
@@ -128,9 +133,11 @@ def index_documents(db: Session, appel_offres_id: int, extracted_files: list[Ext
         db.refresh(document)
     
     # Instrumentation : log des fichiers .txt
+    if txt_files_reused > 0:
+        logger.info(f"[PIPELINE] TXT ............ REUSE ({txt_files_reused} fichiers .txt réutilisés)")
     if txt_files_rebuilt > 0:
         logger.info(f"[PIPELINE] TXT ............ REBUILD ({txt_files_rebuilt} fichiers .txt régénérés)")
-    else:
+    if txt_files_reused == 0 and txt_files_rebuilt == 0:
         logger.info(f"[PIPELINE] TXT ............ RUN (pas de fichiers .txt existants)")
     
     return documents

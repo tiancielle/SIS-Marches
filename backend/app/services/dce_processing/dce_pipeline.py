@@ -34,6 +34,156 @@ from app.services.dce_processing.zip_extractor import ZipExtractionError
 from app.services.dce_processing.ai_extractor import EXPECTED_FIELDS
 from app.services.acquisition.sync_orchestrator import download_dce_for
 
+
+def _is_cps_file(nom_fichier: str) -> bool:
+    """
+    Vérifie si le fichier est le CPS par son nom (Niveau 1).
+    """
+    nom_lower = nom_fichier.lower()
+    
+    if "cps" in nom_lower:
+        return True
+    
+    if "ao" in nom_lower or "appel" in nom_lower:
+        cps_keywords = ["consultation", "reglement", "cahier", "detail", "charges"]
+        if any(keyword in nom_lower for keyword in cps_keywords):
+            return True
+    
+    cps_keywords = ["consultation", "reglement", "cahier des charges", "cdc"]
+    if any(keyword in nom_lower for keyword in cps_keywords):
+        return True
+    
+    return False
+
+
+def _find_cps_candidates(extracted_files: list) -> list:
+    """
+    Cherche des candidats CPS suspects parmi les fichiers extraits (Niveau 2).
+    """
+    candidates = []
+    
+    for extracted_file in extracted_files:
+        if extracted_file.extension != "pdf":
+            continue
+        
+        if extracted_file.taille_octets < 1024 * 1024:
+            continue
+        
+        nom_lower = extracted_file.nom_fichier.lower()
+        suspect_keywords = ["ao", "appel", "caf", "ctp", "detail", "cahier", "consultation", "reglement"]
+        has_suspect_name = any(keyword in nom_lower for keyword in suspect_keywords)
+        
+        score = extracted_file.taille_octets
+        if has_suspect_name:
+            score *= 1.5
+        
+        candidates.append({
+            "file": extracted_file,
+            "score": score,
+            "taille": extracted_file.taille_octets,
+            "has_suspect_name": has_suspect_name
+        })
+    
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+    return candidates[:3]
+
+
+def _verify_cps_candidate(candidate: dict, output_dir: str) -> tuple[bool, int]:
+    """
+    Vérifie si un candidat est vraiment le CPS en analysant sa première page (Niveau 3).
+    """
+    extracted_file = candidate["file"]
+    
+    try:
+        import fitz
+        import tempfile
+        import os
+    except ImportError:
+        return False, 0
+    
+    logger.info(f"[CPS-DETECT] Vérification première page : {extracted_file.nom_fichier}")
+    
+    try:
+        doc = fitz.open(extracted_file.absolute_path)
+        page = doc[0]
+        
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            pix = page.get_pixmap(dpi=200)
+            pix.save(tmp.name)
+            page_img_path = tmp.name
+        
+        doc.close()
+        
+        try:
+            from paddleocr import PaddleOCR
+            ocr = PaddleOCR(
+                lang='fr',
+                text_detection_model_name="PP-OCRv6_small_det",
+                text_recognition_model_name="PP-OCRv6_small_rec",
+                use_doc_orientation_classify=False,
+                use_doc_unwarping=False,
+                use_textline_orientation=False,
+                enable_mkldnn=False,
+            )
+            
+            result = ocr.predict(page_img_path)
+            texts = []
+            for item in result:
+                if isinstance(item, dict):
+                    rec_texts = item.get("rec_texts", [])
+                    texts.extend(rec_texts)
+                elif hasattr(item, "rec_texts"):
+                    texts.extend(item.rec_texts)
+            
+            texte = "\n".join(texts).lower()
+            
+            try:
+                os.remove(page_img_path)
+            except:
+                pass
+            
+            cps_indicators = [
+                "cahier des prescriptions spéciales",
+                "cahier des prescriptions spéciales",
+                "cps",
+                "article",
+                "objet",
+                "lot",
+                "marché",
+                "appel d'offres",
+                "prescriptions",
+                "cahier des charges",
+                "règlement",
+                "spécifications"
+            ]
+            
+            score = 0
+            found_indicators = []
+            
+            for indicator in cps_indicators:
+                if indicator in texte:
+                    score += 1
+                    found_indicators.append(indicator)
+            
+            logger.info(f"[CPS-DETECT] Score CPS = {score} (indices trouvés : {found_indicators})")
+            
+            is_cps = score >= 3
+            
+            if is_cps:
+                logger.info(f"[CPS-DETECT] CPS confirmé → OCR complet")
+            else:
+                logger.info(f"[CPS-DETECT] Candidat rejeté (score {score} < 3)")
+            
+            return is_cps, score
+            
+        except Exception as exc:
+            logger.error(f"[CPS-DETECT] Erreur OCR première page : {exc}")
+            return False, 0
+            
+    except Exception as exc:
+        logger.error(f"[CPS-DETECT] Erreur vérification candidat : {exc}")
+        return False, 0
+
 # DIAGNOSTIC 2 : Classification des champs par importance métier
 # Les champs indispensables sont ceux qui rendent une analyse exploitable même sans les autres
 CHAMPS_INDISPENSABLES = [
@@ -239,6 +389,49 @@ def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False)
             "Le zip du DCE ne contient aucun fichier exploitable (uniquement des dossiers ou des fichiers parasites).",
             nb_documents_analyses=0,
         )
+
+    # --- ÉTAPE 1.5 : Détection CPS (Fallback intelligent) ---
+    logger.info(f"[CPS-DETECT] Détection CPS avec fallback intelligent")
+    
+    # Niveau 1 : CPS explicite par nom
+    cps_explicite = None
+    for extracted_file in extracted_files:
+        if extracted_file.extension == "pdf" and _is_cps_file(extracted_file.nom_fichier):
+            cps_explicite = extracted_file
+            logger.info(f"[CPS-DETECT] CPS explicite trouvé (Niveau 1) : {extracted_file.nom_fichier}")
+            break
+    
+    if cps_explicite:
+        # CPS explicite trouvé : marquer pour OCR complet
+        cps_explicite._is_cps_confirmed = True
+    else:
+        # Niveau 2 : Aucun CPS explicite → chercher candidats suspects
+        logger.info(f"[CPS-DETECT] Aucun CPS explicite trouvé → recherche candidats suspects (Niveau 2)")
+        candidates = _find_cps_candidates(extracted_files)
+        
+        if candidates:
+            logger.info(f"[CPS-DETECT] {len(candidates)} candidat(s) suspect(s) trouvé(s)")
+            
+            # Niveau 3 : Vérifier les candidats par OCR première page
+            for i, candidate in enumerate(candidates):
+                logger.info(f"[CPS-DETECT] Vérification candidat {i+1}/{len(candidates)} : {candidate['file'].nom_fichier}")
+                
+                output_dir = os.path.join(settings.dce_extracted_storage_path, str(appel_offres_id))
+                is_cps, score = _verify_cps_candidate(candidate, output_dir)
+                
+                if is_cps:
+                    # CPS confirmé : marquer pour OCR complet
+                    candidate['file']._is_cps_confirmed = True
+                    logger.info(f"[CPS-DETECT] CPS confirmé (Niveau 3) : {candidate['file'].nom_fichier}")
+                    break
+                else:
+                    logger.info(f"[CPS-DETECT] Candidat rejeté (score {score} < 3)")
+            
+            # Limite stricte : maximum 3 candidats vérifiés
+            if not any(getattr(f, '_is_cps_confirmed', False) for f in extracted_files):
+                logger.info(f"[CPS-DETECT] Aucun CPS confirmé après vérification de {len(candidates)} candidats")
+        else:
+            logger.info(f"[CPS-DETECT] Aucun candidat suspect trouvé")
 
     # --- ÉTAPE 2 : Extraction de features et Persistance (Texte + Indexation) ---
     # Cette étape est tolérante aux pannes. Même si 50% des fichiers échouent, 

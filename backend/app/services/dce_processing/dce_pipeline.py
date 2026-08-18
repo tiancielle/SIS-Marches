@@ -324,6 +324,17 @@ def run_pipeline(db: Session, appel_offres_id: int, force: bool = False) -> Anal
 
     try:
         return _run_pipeline_locked(db, appel_offres_id, force)
+    except Exception as exc:
+        # En cas d'exception non gérée, s'assurer que l'état est marqué comme échec
+        logger.error(f"[DIAG] Exception non gérée dans le pipeline pour AppelOffres {appel_offres_id}: {exc}")
+        existing = db.query(AnalyseDce).filter(AnalyseDce.appel_offres_id == appel_offres_id).first()
+        if existing is not None:
+            existing.statut = "echec"
+            existing.erreur = f"Erreur non gérée: {str(exc)}"
+            db.commit()
+            db.refresh(existing)
+            return existing
+        raise
     finally:
         lock.release()
 
@@ -491,6 +502,12 @@ def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False)
     analyse.nb_documents_analyses = len(built_context.documents_inclus)
     analyse.contexte_tronque = built_context.tronque
     analyse.nb_caracteres_contexte = built_context.nb_caracteres_total
+    
+    # OPTIMISATION : Sauvegarder les hashes pour détection de changement
+    analyse.contexte_hash = contexte_hash
+    # Calculer le hash du résultat pour détecter si l'analyse a changé
+    analyse_json = json.dumps({k: v for k, v in result.items() if k in EXPECTED_FIELDS}, ensure_ascii=False)
+    analyse.analyse_hash = hashlib.md5(analyse_json.encode('utf-8')).hexdigest()
 
     # Évaluation de la complétude de la sortie du LLM (Data Quality Assessment)
     # On compte le nombre de champs attendus qui ont été effectivement remplis.

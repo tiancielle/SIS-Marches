@@ -588,6 +588,34 @@ def _ocr_pdf_scanne(path: str, out_path: str) -> tuple[int, Optional[str]]:
     return total_chars, None
 
 
+# Variable globale pour stocker l'instance PaddleOCR par processus worker
+_worker_ocr_instance = None
+
+def _worker_initializer():
+    """
+    Initializer pour ProcessPoolExecutor : crée l'instance PaddleOCR une seule fois par worker.
+    """
+    global _worker_ocr_instance
+    if _worker_ocr_instance is None:
+        from paddleocr import PaddleOCR
+        import os
+        worker_pid = os.getpid()
+        _worker_ocr_instance = PaddleOCR(
+            lang="fr",
+            text_detection_model_name="PP-OCRv6_small_det",
+            text_recognition_model_name="PP-OCRv6_small_rec",
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
+            enable_mkldnn=False,
+        )
+        print(f"[OCR-WORKER] Initialisation PaddleOCR PID={worker_pid}", flush=True)
+    else:
+        import os
+        worker_pid = os.getpid()
+        print(f"[OCR-WORKER] PID={worker_pid} utilisation instance existante", flush=True)
+
+
 def _ocr_page_worker(args: tuple) -> tuple[int, str, float, float, float]:
     """
     Worker pour OCR parallélisé d'une page (ProcessPoolExecutor).
@@ -610,9 +638,14 @@ def _ocr_page_worker(args: tuple) -> tuple[int, str, float, float, float]:
     processed_img_path = None
     meilleur_texte = ""
     
+    import os
+    worker_start = time.time()
+    worker_pid = os.getpid()
+    
+    print(f"[OCR-WORKER] PID={worker_pid} utilisation instance existante page={page_num}", flush=True)
+    
     try:
         import fitz  # PyMuPDF
-        import os  # Import os pour la gestion des fichiers temporaires
         
         # Conversion PDF → image dans ce processus worker
         conv_start = time.time()
@@ -644,24 +677,17 @@ def _ocr_page_worker(args: tuple) -> tuple[int, str, float, float, float]:
         
         meilleure_langue = None
         
-        # Créer une instance PaddleOCR locale pour ce processus worker
-        from paddleocr import PaddleOCR
-        ocr_local = PaddleOCR(
-            lang=langues[0] if langues else "fr",
-            text_detection_model_name="PP-OCRv6_small_det",
-            text_recognition_model_name="PP-OCRv6_small_rec",
-            use_doc_orientation_classify=False,
-            use_doc_unwarping=False,
-            use_textline_orientation=False,
-            enable_mkldnn=False,
-        )
+        # Utiliser l'instance globale PaddleOCR créée par l'initializer
+        global _worker_ocr_instance
         
         for lang in langues:
-            result = ocr_local.predict(img_to_ocr)
+            result = _worker_ocr_instance.predict(img_to_ocr)
+            
             texts = []
             for item in result:
                 extracted = _extract_ocr_result_texts(item)
                 texts.extend(extracted)
+            
             texte = "\n".join(texts)
             
             if len(texte) > len(meilleur_texte):
@@ -687,6 +713,10 @@ def _ocr_page_worker(args: tuple) -> tuple[int, str, float, float, float]:
                 os.remove(processed_img_path)
             except PermissionError:
                 logger.warning(f"[OCR] Impossible de supprimer le fichier pré-traité : {processed_img_path}")
+        
+        worker_end = time.time()
+        worker_duration = worker_end - worker_start
+        print(f"[OCR-WORKER] Fin worker PID={worker_pid} page={page_num} durée={worker_duration:.2f}s (conv={page_conversion_time:.2f}s, preproc={page_preprocess_time:.2f}s, ocr={page_ocr_time:.2f}s)", flush=True)
     
     return (page_num, meilleur_texte, page_conversion_time, page_preprocess_time, page_ocr_time)
 
@@ -721,7 +751,7 @@ def _ocr_pdf_scanne_parallel(path: str, out_path: str) -> tuple[int, Optional[st
     langues = [l.strip() for l in langues if l.strip()]
 
     SEUIL_SUFFISANT = 30  # nb de caractères au-delà duquel une page est considérée bien reconnue
-    dpi = 200  # DPI pour la conversion
+    dpi = 150  # DPI pour la conversion
     
     ocr_start = time.time()
     
@@ -747,22 +777,30 @@ def _ocr_pdf_scanne_parallel(path: str, out_path: str) -> tuple[int, Optional[st
             for page_num in range(1, nb_pages + 1)
         ]
         
-        # Nombre de workers = 2 maximum pour éviter la sur-sousscription CPU
-        # (2 workers × 2 threads OMP = 4 threads totaux, adapté à CPU 4 cœurs)
-        max_workers = min(2, os.cpu_count() or 1)
+        # Nombre de workers = 1 pour éviter la contention CPU avec OMP_NUM_THREADS=2
+        # (1 worker × 2 threads OMP = 2 threads totaux, mieux adapté à CPU 4 cœurs)
+        max_workers = 1
         logger.info(f"[OCR] Workers: {max_workers}")
         
         ocr_parallel_start = time.time()
         results = {}
         
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        logger.info(f"[OCR-PARALLEL] Début traitement parallèle à {time.strftime('%H:%M:%S', time.localtime(ocr_parallel_start))}")
+        
+        with ProcessPoolExecutor(max_workers=max_workers, initializer=_worker_initializer) as executor:
             future_to_page = {
                 executor.submit(_ocr_page_worker, args): args[1]
                 for args in worker_args
             }
             
+            pending_futures = len(future_to_page)
+            completed_futures = 0
+            logger.info(f"[OCR-PARALLEL] {pending_futures} tâches soumises à {max_workers} workers")
+            
             for future in as_completed(future_to_page):
                 page_num = future_to_page[future]
+                completed_futures += 1
+                
                 try:
                     page_num, texte, conv_time, preprocess_time, ocr_time = future.result()
                     results[page_num] = (texte, conv_time, preprocess_time, ocr_time)
@@ -772,14 +810,16 @@ def _ocr_pdf_scanne_parallel(path: str, out_path: str) -> tuple[int, Optional[st
                     total_preprocess_time += preprocess_time
                     
                     # Log de progression
-                    logger.info(f"[OCR] Page {page_num}/{nb_pages} | predict={ocr_time:.2f}s")
+                    remaining = pending_futures - completed_futures
+                    logger.info(f"[OCR] Page {page_num}/{nb_pages} | predict={ocr_time:.2f}s | terminés={completed_futures}/{pending_futures} | restants={remaining}")
                 except Exception as exc:
                     logger.error(f"[OCR] Erreur page {page_num}: {exc}")
         
-        logger.info(f"[OCR] Traitement parallèle terminé")
+        logger.info(f"[OCR-PARALLEL] Traitement parallèle terminé | {completed_futures}/{pending_futures} tâches complétées")
         
         ocr_parallel_end = time.time()
         total_ocr_time = ocr_parallel_end - ocr_parallel_start
+        logger.info(f"[OCR-PARALLEL] Fin traitement parallèle à {time.strftime('%H:%M:%S', time.localtime(ocr_parallel_end))} | durée={total_ocr_time:.2f}s")
         
         # Assembler les résultats dans l'ordre
         with open(out_path, "w", encoding="utf-8") as out:

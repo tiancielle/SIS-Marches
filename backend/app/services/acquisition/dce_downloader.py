@@ -14,10 +14,14 @@ en conservant les jetons d'état (CSRF, PRADO) et en émulant les en-têtes d'un
 légitime pour maximiser le taux de succès des requêtes.
 """
 import os
+import time
+import logging
 from bs4 import BeautifulSoup
 from app.core.config import settings
 from .normalizer import extract_form_fields
 from .detail_navigator import build_detail_url
+
+logger = logging.getLogger(__name__)
 
 # Gabarit d'URL pour la page de demande de téléchargement.
 # La construction dynamique permet de cibler précisément la consultation 
@@ -34,6 +38,9 @@ def download_dce(client, ref_consultation: str, org_acronyme: str) -> dict:
     Retourne un dictionnaire de statut pour permettre une gestion d'erreur 
     gracieuse (graceful degradation) par l'orchestrateur appelant.
     """
+    logger.info(f"[DOWNLOAD] Début téléchargement DCE pour {ref_consultation}/{org_acronyme}")
+    download_start = time.time()
+    
     detail_url = build_detail_url(ref_consultation, org_acronyme)
     telechargement_url = DOWNLOAD_URL_TEMPLATE.format(
         ref_consultation=ref_consultation, org_acronyme=org_acronyme
@@ -42,7 +49,11 @@ def download_dce(client, ref_consultation: str, org_acronyme: str) -> dict:
     # ÉTAPE 1 : Récupération du formulaire dynamique.
     # On effectue une requête GET initiale pour obtenir les champs cachés 
     # (jetons anti-CSRF, état de la session PRADO) générés par le serveur.
+    step1_start = time.time()
     resp2 = client.get(telechargement_url, headers={"Referer": detail_url})
+    step1_end = time.time()
+    logger.info(f"[DOWNLOAD] Étape 1 (formulaire) : {step1_end - step1_start:.2f}s")
+    
     soup_dl = BeautifulSoup(resp2.text, "lxml")
     
     # ROBUSTESSE : extract_form_fields capture tous les champs, y compris les 
@@ -70,7 +81,11 @@ def download_dce(client, ref_consultation: str, org_acronyme: str) -> dict:
 
     # ÉTAPE 3 : Soumission du formulaire d'identité.
     # Le Referer est maintenu pour satisfaire les vérifications basiques de sécurité du serveur.
+    step2_start = time.time()
     resp3 = client.post(telechargement_url, data=form_data, headers={"Referer": telechargement_url})
+    step2_end = time.time()
+    logger.info(f"[DOWNLOAD] Étape 2 (soumission identité) : {step2_end - step2_start:.2f}s")
+    
     soup_final = BeautifulSoup(resp3.text, "lxml")
     
     # On ré-extrait les champs du formulaire mis à jour après la première soumission, 
@@ -84,10 +99,13 @@ def download_dce(client, ref_consultation: str, org_acronyme: str) -> dict:
     # SÉCURITÉ : allow_redirects=False nous permet d'intercepter la réponse HTTP 
     # avant que la bibliothèque ne suive automatiquement la redirection. Cela permet 
     # de valider la cible (Location) et d'éviter les redirections ouvertes ou les boucles.
+    step3_start = time.time()
     resp4 = client.post(
         telechargement_url, data=form_data_final,
         headers={"Referer": telechargement_url}, allow_redirects=False,
     )
+    step3_end = time.time()
+    logger.info(f"[DOWNLOAD] Étape 3 (déclenchement) : {step3_end - step3_start:.2f}s")
 
     # Vérification que le serveur a bien répondu par une redirection HTTP valide (301/302).
     if resp4.status_code not in (301, 302) or not resp4.headers.get("Location"):
@@ -100,6 +118,7 @@ def download_dce(client, ref_consultation: str, org_acronyme: str) -> dict:
     # Les en-têtes "Sec-Fetch-*" sont cruciaux : de nombreux WAF (Web Application Firewalls) 
     # bloquent les requêtes de téléchargement direct si elles ne proviennent pas d'une 
     # navigation utilisateur légitime (mode "navigate", site "same-origin").
+    step4_start = time.time()
     resp5 = client.get(
         final_url,
         headers={
@@ -111,6 +130,8 @@ def download_dce(client, ref_consultation: str, org_acronyme: str) -> dict:
             "Cache-Control": "max-age=0",
         },
     )
+    step4_end = time.time()
+    logger.info(f"[DOWNLOAD] Étape 4 (téléchargement réseau) : {step4_end - step4_start:.2f}s")
 
     # CONTRÔLE D'INTÉGRITÉ DES DONNÉES (Data Validation) :
     # On vérifie le Content-Type avant d'écrire le fichier. Sans cette vérification, 
@@ -120,12 +141,22 @@ def download_dce(client, ref_consultation: str, org_acronyme: str) -> dict:
         return {"success": False, "reason": "Réponse inattendue (pas un zip)", "status": resp5.status_code}
 
     # ÉTAPE 6 : Persistance sur le système de fichiers.
+    step5_start = time.time()
     os.makedirs(settings.dce_storage_path, exist_ok=True)
     filename = f"dce_{ref_consultation}_{org_acronyme}.zip"
     filepath = os.path.join(settings.dce_storage_path, filename)
     
     with open(filepath, "wb") as f:
         f.write(resp5.content)
+    step5_end = time.time()
+    logger.info(f"[DOWNLOAD] Étape 5 (écriture disque) : {step5_end - step5_start:.2f}s")
+    
+    download_end = time.time()
+    total_time = download_end - download_start
+    file_size_mb = len(resp5.content) / (1024 * 1024)
+    throughput_mbps = file_size_mb / (step4_end - step4_start) if (step4_end - step4_start) > 0 else 0
+    
+    logger.info(f"[DOWNLOAD] Total : {total_time:.2f}s | Taille : {file_size_mb:.2f} Mo | Débit : {throughput_mbps:.2f} Mo/s")
 
     # Retour d'un chemin normalisé (slashes avant) pour garantir la compatibilité 
     # des chemins entre Windows (où le script peut tourner) et les requêtes futures.

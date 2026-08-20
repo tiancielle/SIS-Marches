@@ -107,12 +107,19 @@ def _verify_cps_candidate(candidate: dict, output_dir: str) -> tuple[bool, int]:
         doc = fitz.open(extracted_file.absolute_path)
         page = doc[0]
         
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        # Utiliser mkstemp au lieu de NamedTemporaryFile pour éviter les erreurs de permission
+        fd, page_img_path = tempfile.mkstemp(suffix=".png")
+        try:
             pix = page.get_pixmap(dpi=200)
-            pix.save(tmp.name)
-            page_img_path = tmp.name
+            pix.save(page_img_path)
+        finally:
+            os.close(fd)
         
         doc.close()
+        
+        # Délai pour s'assurer que le fichier est bien écrit avant OCR
+        import time
+        time.sleep(0.1)
         
         try:
             from paddleocr import PaddleOCR
@@ -137,10 +144,13 @@ def _verify_cps_candidate(candidate: dict, output_dir: str) -> tuple[bool, int]:
             
             texte = "\n".join(texts).lower()
             
-            try:
-                os.remove(page_img_path)
-            except:
-                pass
+            # Nettoyer le fichier temporaire avec plusieurs tentatives
+            for attempt in range(3):
+                try:
+                    os.remove(page_img_path)
+                    break
+                except:
+                    time.sleep(0.1)
             
             cps_indicators = [
                 "cahier des prescriptions spéciales",
@@ -502,12 +512,6 @@ def _run_pipeline_locked(db: Session, appel_offres_id: int, force: bool = False)
     analyse.nb_documents_analyses = len(built_context.documents_inclus)
     analyse.contexte_tronque = built_context.tronque
     analyse.nb_caracteres_contexte = built_context.nb_caracteres_total
-    
-    # OPTIMISATION : Sauvegarder les hashes pour détection de changement
-    analyse.contexte_hash = contexte_hash
-    # Calculer le hash du résultat pour détecter si l'analyse a changé
-    analyse_json = json.dumps({k: v for k, v in result.items() if k in EXPECTED_FIELDS}, ensure_ascii=False)
-    analyse.analyse_hash = hashlib.md5(analyse_json.encode('utf-8')).hexdigest()
 
     # Évaluation de la complétude de la sortie du LLM (Data Quality Assessment)
     # On compte le nombre de champs attendus qui ont été effectivement remplis.

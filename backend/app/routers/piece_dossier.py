@@ -1,5 +1,7 @@
 import os
 import shutil
+import zipfile
+import tempfile
 
 from fastapi.responses import FileResponse
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
@@ -79,3 +81,46 @@ def telecharger_document(projet_id: int, piece_id: int, db: Session = Depends(ge
         raise HTTPException(status_code=404, detail="Aucun document joint pour cette pièce")
 
     return FileResponse(piece.document_path, filename=piece.document_nom_original or os.path.basename(piece.document_path))
+
+
+@router.get("/zip")
+def telecharger_tout_en_zip(projet_id: int, db: Session = Depends(get_db)):
+    """
+    Télécharge tous les documents déposés pour un projet en un fichier ZIP.
+    """
+    projet = _get_projet_or_404(projet_id, db)
+    
+    # Récupérer toutes les pièces avec documents
+    pieces = db.query(PieceDossier).filter(
+        PieceDossier.projet_id == projet_id,
+        PieceDossier.document_path.isnot(None)
+    ).all()
+    
+    if not pieces:
+        raise HTTPException(status_code=404, detail="Aucun document déposé pour ce projet")
+    
+    # Créer un fichier ZIP temporaire
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp_zip:
+        tmp_zip_path = tmp_zip.name
+    
+    try:
+        with zipfile.ZipFile(tmp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for piece in pieces:
+                if piece.document_path and os.path.exists(piece.document_path):
+                    # Utiliser le nom original ou un nom basé sur le libellé
+                    filename = piece.document_nom_original or f"{piece.libelle}{os.path.splitext(piece.document_path)[1]}"
+                    zipf.write(piece.document_path, filename)
+        
+        # Nom du fichier ZIP
+        zip_filename = f"dossier_{projet_id}_{projet.nom.replace(' ', '_')}.zip"
+        
+        return FileResponse(
+            tmp_zip_path,
+            media_type="application/zip",
+            filename=zip_filename
+        )
+    except Exception as exc:
+        # Nettoyer le fichier temporaire en cas d'erreur
+        if os.path.exists(tmp_zip_path):
+            os.remove(tmp_zip_path)
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la création du ZIP: {str(exc)}")

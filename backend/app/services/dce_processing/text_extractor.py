@@ -812,6 +812,20 @@ def _ocr_pdf_scanne_parallel(path: str, out_path: str) -> tuple[int, Optional[st
                     # Log de progression
                     remaining = pending_futures - completed_futures
                     logger.info(f"[OCR] Page {page_num}/{nb_pages} | predict={ocr_time:.2f}s | terminés={completed_futures}/{pending_futures} | restants={remaining}")
+                    
+                    # Sauvegarde progressive du cache après chaque page (fiabilité)
+                    try:
+                        partial_text = ""
+                        for p in range(1, page_num + 1):
+                            if p in results:
+                                partial_text += results[p][0] + "\n\n"
+                        
+                        if partial_text and len(partial_text.strip()) > 0:
+                            save_ocr_result(path, partial_text, total_ocr_time_all, page_num)
+                            logger.info(f"[CACHE] Sauvegarde progressive après page {page_num}")
+                    except Exception as cache_exc:
+                        logger.warning(f"[CACHE] Erreur sauvegarde progressive : {cache_exc}")
+                        
                 except Exception as exc:
                     logger.error(f"[OCR] Erreur page {page_num}: {exc}")
         
@@ -964,7 +978,8 @@ def _extract_pdf(path: str, out_path: str) -> tuple[int, Optional[str]]:
                 page_text = page.extract_text() or ""
                 
                 # Détection : compter les pages avec texte significatif
-                if page_text and len(page_text.strip()) > 50:
+                # Seuil abaissé de 50 à 10 pour détecter plus de PDF natifs
+                if page_text and len(page_text.strip()) > 10:
                     pages_with_text += 1
                 
                 # Extraction : écrire le texte immédiatement

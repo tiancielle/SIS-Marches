@@ -20,3 +20,7 @@ export const uploadPieceDossierDocument = (projetId, pieceId, file) => {
 // piece.document_path (ou équivalent) est déjà renseigné, jamais en dur.
 export const pieceDossierDocumentUrl = (projetId, pieceId) =>
   `${BASE_URL}/projets/${projetId}/pieces-dossier/${pieceId}/document`;
+
+// Télécharger tous les documents déposés en ZIP
+export const piecesDossierZipUrl = (projetId) =>
+  `${BASE_URL}/projets/${projetId}/pieces-dossier/zip`;

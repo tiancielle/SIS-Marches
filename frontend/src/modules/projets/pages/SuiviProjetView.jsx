@@ -30,7 +30,7 @@ export default function SuiviProjetView() {
   in30Days.setDate(in30Days.getDate() + 30);
   const echeancesProches = projetsActifs.filter(p => p.fin && new Date(p.fin) >= now && new Date(p.fin) <= in30Days).length;
 
-  const filteredProjets = projets.filter(p => {
+  const filteredProjets = projetsActifs.filter(p => {
     const matchQuery = !query || p.nom.toLowerCase().includes(query.toLowerCase());
     
     let matchTab = true;
@@ -52,7 +52,7 @@ export default function SuiviProjetView() {
     { key: "suspendu", label: "Suspendus", count: kpiSuspendus },
   ];
 
-  if (projets.length === 0) {
+  if (projetsActifs.length === 0) {
     return (
       <div style={{ padding: "48px 32px", textAlign: "center" }}>
         <h2 style={{ fontFamily: FONT, fontSize: 24, fontWeight: 600, color: C.ink, marginBottom: 12 }}>
@@ -83,7 +83,7 @@ export default function SuiviProjetView() {
             Projets
           </h1>
           <p style={{ fontFamily: FONT, fontSize: 14, color: C.mute, margin: 0 }}>
-            {projets.length} projet(s) · {kpiEnExecution} en exécution · {kpiADemarrer} à démarrer
+            {projetsActifs.length} projet(s) · {kpiEnExecution} en exécution · {kpiADemarrer} à démarrer
           </p>
         </div>
       </div>

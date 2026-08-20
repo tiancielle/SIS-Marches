@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ExternalLink, Upload, Check, Sparkles, Send, FileCheck2, Paperclip, Download, Archive } from "lucide-react";
 import { useData } from "../../../../store/DataContext";
-import { fetchPiecesDossier, updatePieceDossierStatut, uploadPieceDossierDocument, pieceDossierDocumentUrl } from "../../../../services/pieceDossier";
+import { fetchPiecesDossier, updatePieceDossierStatut, uploadPieceDossierDocument, pieceDossierDocumentUrl, piecesDossierZipUrl } from "../../../../services/pieceDossier";
 import { C, FONT } from "../../../../styles/theme";
 import Badge from "../../../../components/ui/Badge";
 
@@ -138,10 +138,10 @@ export default function ProjectCandidatureTab({ project }) {
         )}
       </div>
 
-      {/* Téléchargement dossier complet (placeholder) */}
+      {/* Téléchargement dossier complet */}
       <div style={{
         background: C.card,
-        border: `1px dashed ${C.line}`,
+        border: `1px solid ${C.line}`,
         borderRadius: C.radius,
         padding: "18px 20px",
         display: "flex",
@@ -154,21 +154,27 @@ export default function ProjectCandidatureTab({ project }) {
             Archive ZIP de toutes les pièces déposées
           </p>
         </div>
-        <button disabled style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          padding: "7px 12px",
-          background: C.paper,
-          color: C.faint,
-          border: `1px solid ${C.line}`,
-          borderRadius: C.radius,
-          fontSize: 13,
-          fontWeight: 600,
-          cursor: "default",
-        }}>
+        <a
+          href={piecesDossierZipUrl(project.id)}
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "7px 12px",
+            background: C.accent,
+            color: "#fff",
+            border: "none",
+            borderRadius: C.radius,
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+            textDecoration: "none",
+          }}
+        >
           <Archive size={14} /> Télécharger (.zip)
-        </button>
+        </a>
       </div>
 
       {/* Génération présentation */}

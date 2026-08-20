@@ -24,3 +24,20 @@ export async function getHistoriqueProjet(projetId) {
   }
   return response.json();
 }
+
+export async function ajouterEvenementHistorique(projetId, type, label, detail, metadata = {}) {
+  const response = await fetch(`${API_BASE}/projets/${projetId}/historique`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ type, label, detail, metadata }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Erreur lors de l'ajout de l'événement");
+  }
+
+  return response.json();
+}

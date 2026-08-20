@@ -34,11 +34,6 @@ export default function ProjetDetailView() {
   const [loading, setLoading] = useState(false);
 
   const project = projects.find((p) => String(p.id) === id);
-  if (!project) return <div style={{ padding: 32, color: C.faint }}>Projet introuvable.</div>;
-
-  const workflowState = getWorkflowState(project.statut);
-  const equipe = getEquipeForProject(project.id);
-  const equipeNames = equipe.map((m) => m.nom).join(", ") || "Aucun membre affecté";
 
   // Charger les documents DCE si appel_offres_id existe
   useEffect(() => {
@@ -51,6 +46,12 @@ export default function ProjetDetailView() {
     }
   }, [project?.appel_offres_id]);
 
+  if (!project) return <div style={{ padding: 32, color: C.faint }}>Projet introuvable.</div>;
+
+  const workflowState = getWorkflowState(project.statut);
+  const equipe = getEquipeForProject(project.id);
+  const equipeNames = equipe.map((m) => m.nom).join(", ") || "Aucun membre affecté";
+
   // Configuration des onglets selon le workflow_state
   const tabs = workflowState === "opportunite" ? [
     { key: "infos", label: "Informations", component: InfoTab },
@@ -60,6 +61,7 @@ export default function ProjetDetailView() {
     { key: "historique", label: "Historique", component: ProjectHistoryTab },
   ] : [
     { key: "infos", label: "Informations", component: InfoTab },
+    { key: "dce", label: "DCE", component: ProjectDCETab },
     { key: "equipe", label: "Équipe", component: ProjectEquipeTab },
     { key: "subs", label: "Sous-traitants", component: ProjectSubsTab },
     { key: "docs", label: "Documents", component: ProjectDocsTab },

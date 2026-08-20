@@ -7,8 +7,23 @@ import { fetchContrats, createContrat, updateContrat, deleteContrat } from "../s
 import { fetchDCEList, createDCE, updateDCE, deleteDCE } from "../services/dce";
 import { fetchEquipe, createEquipeMembre, updateEquipeMembre as updateEquipeMembreApi, deleteEquipeMembre } from "../services/equipe";
 import { fetchProjetEquipe, assignEquipeApi, removeProjetEquipeApi } from "../services/projetEquipe";
-import { changerStatutProjet, getHistoriqueProjet } from "../services/workflow";
+import { changerStatutProjet, getHistoriqueProjet, ajouterEvenementHistorique } from "../services/workflow";
 import { SEED_MARCHES, SEED_ANALYSES } from "../lib/mockData";
+import {
+  logProjectCreated,
+  logProjectUpdated,
+  logProjectStatusChanged,
+  logContractCreated,
+  logContractUpdated,
+  logContractDeleted,
+  logTeamMemberAssigned,
+  logTeamMemberRemoved,
+  logOpportunityInterested,
+  logOpportunityInPreparation,
+  logOpportunityReadyToSubmit,
+  logOpportunityWon,
+  logOpportunityLost,
+} from "../modules/projets/lib/eventHistory";
 
 const DataContext = createContext(null);
 
@@ -60,7 +75,7 @@ export function DataProvider({ children }) {
   const addProject = async (data) => {
     const created = await createProjectApi(data);
     setProjects((prev) => [...prev, created]);
-    pushHistory(created.id, "Projet créé", `Le projet "${created.nom}" a été créé`);
+    logProjectCreated(pushHistory, created);
     return created;
   };
 
@@ -70,13 +85,13 @@ export function DataProvider({ children }) {
   // et le projet reste invisible jusqu'au prochain rechargement complet de la page.
   const addProjectToState = (projet) => {
     setProjects((prev) => (prev.some((p) => p.id === projet.id) ? prev : [...prev, projet]));
-    pushHistory(projet.id, "Projet créé", `Le projet "${projet.nom}" a été créé`);
+    logProjectCreated(pushHistory, projet);
   };
 
   const updateProject = async (id, data) => {
     const updated = await updateProjectApi(id, data);
     setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
-    pushHistory(id, "Informations modifiées", "Les informations générales du projet ont été mises à jour");
+    logProjectUpdated(pushHistory, id);
     return updated;
   };
 
@@ -109,7 +124,7 @@ export function DataProvider({ children }) {
     const created = await createContrat(data);
     setContrats((prev) => [...prev, created]);
     if (data.projet_id) {
-      pushHistory(data.projet_id, "Contrat créé", `Un nouveau contrat a été ajouté au projet`);
+      logContractCreated(pushHistory, data.projet_id, created.nom || "Contrat");
     }
     return created;
   };
@@ -118,7 +133,7 @@ export function DataProvider({ children }) {
     const updated = await updateContrat(id, data);
     setContrats((prev) => prev.map((c) => (c.id === id ? updated : c)));
     if (updated.projet_id) {
-      pushHistory(updated.projet_id, "Contrat modifié", `Le contrat a été mis à jour`);
+      logContractUpdated(pushHistory, updated.projet_id, updated.nom || "Contrat");
     }
     return updated;
   };
@@ -128,7 +143,7 @@ export function DataProvider({ children }) {
     await deleteContrat(id);
     setContrats((prev) => prev.filter((c) => c.id !== id));
     if (contrat?.projet_id) {
-      pushHistory(contrat.projet_id, "Contrat supprimé", `Le contrat a été supprimé du projet`);
+      logContractDeleted(pushHistory, contrat.projet_id, contrat.nom || "Contrat");
     }
   };
 
@@ -150,12 +165,51 @@ export function DataProvider({ children }) {
     setDceList((prev) => prev.filter((d) => d.id !== id));
   };
 
-  // --- 6) Utilitaire d'historique (frontend uniquement, éphémère) ---
-  const pushHistory = (projetId, label, detail) => {
-    setHistoryByProject((prev) => {
-      const list = prev[projetId] || [];
-      return { ...prev, [projetId]: [...list, { id: Date.now(), date: new Date().toISOString().slice(0, 10), label, detail }] };
-    });
+  // --- 6) Utilitaire d'historique (persisté en backend) ---
+  const pushHistory = async (projetId, label, detail, metadata = {}) => {
+    // Envoyer l'événement au backend pour persistance
+    try {
+      const eventType = metadata?.type || "evenement";
+      const backendEvent = await ajouterEvenementHistorique(
+        projetId,
+        eventType,
+        label,
+        detail,
+        metadata
+      );
+      
+      // Mettre à jour le state local avec l'événement du backend
+      setHistoryByProject((prev) => {
+        const list = prev[projetId] || [];
+        return { 
+          ...prev, 
+          [projetId]: [
+            {
+              id: backendEvent.id,
+              date: backendEvent.date,
+              label: backendEvent.label,
+              detail: backendEvent.detail,
+              metadata: backendEvent.metadata,
+            },
+            ...list
+          ]
+        };
+      });
+    } catch (error) {
+      console.error("Failed to save event to backend:", error);
+      // En cas d'erreur, fallback sur le stockage local temporaire
+      setHistoryByProject((prev) => {
+        const list = prev[projetId] || [];
+        const newEvent = { 
+          id: Date.now(), 
+          date: new Date().toISOString().slice(0, 10), 
+          label, 
+          detail, 
+          metadata 
+        };
+        return { ...prev, [projetId]: [...list, newEvent] };
+      });
+    }
   };
 
   // --- 7) CRUD Équipe (via API backend) ---
@@ -182,14 +236,14 @@ export function DataProvider({ children }) {
     const created = await assignEquipeApi({ projet_id: projetId, equipe_id: equipeId, role });
     setEquipeAssignments((prev) => [...prev, created]);
     const membre = equipe.find((m) => m.id === equipeId);
-    pushHistory(projetId, "Membre d'équipe affecté", `${membre?.nom || "Membre"} — ${role}`);
+    logTeamMemberAssigned(pushHistory, projetId, membre?.nom || "Membre", role);
   };
 
   const unassignEquipe = async (assignmentId, projetId) => {
     const assignment = equipeAssignments.find((a) => a.id === assignmentId);
     await removeProjetEquipeApi(assignmentId);
     setEquipeAssignments((prev) => prev.filter((a) => a.id !== assignmentId));
-    if (assignment) pushHistory(projetId, "Membre d'équipe retiré", assignment.nom);
+    if (assignment) logTeamMemberRemoved(pushHistory, projetId, assignment.nom);
   };
 
   // --- 9) Gestion des fichiers (stockage local) ---
@@ -287,16 +341,44 @@ export function DataProvider({ children }) {
 
   // --- 11) Workflow transitions ---
   const changeProjectStatut = async (projetId, nouveauStatut) => {
+    const project = projects.find((p) => p.id === projetId);
+    const oldStatut = project?.statut;
     const updated = await changerStatutProjet(projetId, nouveauStatut);
     setProjects((prev) => prev.map((p) => (p.id === projetId ? updated : p)));
-    pushHistory(projetId, "Statut changé", `Le statut du projet est passé à "${nouveauStatut}"`);
+    
+    // Logger l'événement approprié selon le type de changement
+    if (nouveauStatut === "interesse") {
+      logOpportunityInterested(pushHistory, projetId);
+    } else if (nouveauStatut === "en_preparation") {
+      logOpportunityInPreparation(pushHistory, projetId);
+    } else if (nouveauStatut === "pret_a_deposer") {
+      logOpportunityReadyToSubmit(pushHistory, projetId);
+    } else if (nouveauStatut === "soumis") {
+      // logOpportunitySubmitted est déjà appelé ailleurs si nécessaire
+      logProjectStatusChanged(pushHistory, projetId, oldStatut, nouveauStatut);
+    } else if (nouveauStatut === "gagne") {
+      logOpportunityWon(pushHistory, projetId);
+    } else if (nouveauStatut === "perdu") {
+      logOpportunityLost(pushHistory, projetId);
+    } else {
+      logProjectStatusChanged(pushHistory, projetId, oldStatut, nouveauStatut);
+    }
+    
     return updated;
   };
 
   const fetchHistorique = async (projetId) => {
     const historique = await getHistoriqueProjet(projetId);
-    setHistoryByProject((prev) => ({ ...prev, [projetId]: historique }));
-    return historique;
+    // S'assurer que les événements du backend ont la structure attendue
+    const normalizedHistorique = historique.map(e => ({
+      id: e.id || Date.now() + Math.random(),
+      date: e.date || e.created_at || new Date().toISOString().slice(0, 10),
+      label: e.label || e.titre || e.type || "Événement",
+      detail: e.detail || e.description || "",
+      metadata: e.metadata || { type: e.type },
+    }));
+    setHistoryByProject((prev) => ({ ...prev, [projetId]: normalizedHistorique }));
+    return normalizedHistorique;
   };
 
   return (

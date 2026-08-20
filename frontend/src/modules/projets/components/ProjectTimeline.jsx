@@ -1,5 +1,5 @@
 import React from "react";
-import { Clock, FileText, Users, Briefcase, CheckCircle, AlertCircle, Sparkles, Archive, Edit, Trash2, Plus } from "lucide-react";
+import { Clock, FileText, Users, Briefcase, CheckCircle, AlertCircle, Sparkles, Archive, Edit, Trash2, Plus, Trophy } from "lucide-react";
 import { C, FONT } from "../../../styles/theme";
 import { fmtDate } from "../../../lib/mockData";
 
@@ -26,7 +26,7 @@ export default function ProjectTimeline({ events = [] }) {
         }} />
 
         {events.map((event, index) => (
-          <TimelineEvent key={index} event={event} isLast={index === events.length - 1} />
+          <TimelineEvent key={event.id || index} event={event} isLast={index === events.length - 1} />
         ))}
       </div>
     </div>
@@ -49,6 +49,7 @@ function TimelineEvent({ event, isLast }) {
     ocr: FileText,
     sous_traitant: Users,
     alerte: AlertCircle,
+    won: Trophy,
   };
 
   const Icon = iconMap[event.type] || Clock;
@@ -72,7 +73,7 @@ function TimelineEvent({ event, isLast }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
           <Icon size={16} color={C.accent} />
           <span style={{ fontFamily: FONT, fontSize: 14, fontWeight: 600, color: C.ink }}>
-            {event.title}
+            {event.title || "Événement"}
           </span>
           <span style={{ fontFamily: FONT, fontSize: 12, color: C.mute }}>
             {event.date ? fmtDate(event.date) : ""}
@@ -82,21 +83,6 @@ function TimelineEvent({ event, isLast }) {
           <p style={{ fontFamily: FONT, fontSize: 13, color: C.mute, margin: "0 0 4px" }}>
             {event.description}
           </p>
-        )}
-        {event.metadata && (
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {Object.entries(event.metadata).map(([key, value]) => (
-              <span key={key} style={{
-                fontFamily: FONT, fontSize: 11,
-                padding: "2px 8px",
-                background: C.paper,
-                borderRadius: 4,
-                color: C.mute,
-              }}>
-                {key}: {value}
-              </span>
-            ))}
-          </div>
         )}
       </div>
     </div>

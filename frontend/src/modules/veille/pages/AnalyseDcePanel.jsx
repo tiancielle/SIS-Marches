@@ -127,7 +127,7 @@ export default function AnalyseDcePanel({ appelOffresId, urlCps, readOnly = fals
 
   const pollRef = useRef(null);
   const pollCountRef = useRef(0);
-  const MAX_POLLS = 60; // 60 polls * 4s = 4 minutes max
+  const MAX_POLLS = 900; // 900 polls * 4s = 60 minutes max
 
   async function checkOnce() {
     try {
@@ -146,8 +146,8 @@ export default function AnalyseDcePanel({ appelOffresId, urlCps, readOnly = fals
         pollCountRef.current += 1;
         if (pollCountRef.current >= MAX_POLLS) {
           stopPolling();
-          setError("L'analyse prend trop de temps. Veuillez réessayer plus tard.");
-          setPhase("error");
+          // Ne pas afficher d'erreur, car le backend continue le traitement
+          setPhase("polling_stopped");
         }
       }
     } catch (e) {
@@ -285,6 +285,18 @@ export default function AnalyseDcePanel({ appelOffresId, urlCps, readOnly = fals
           </p>
           <button onClick={checkOnce} style={secondaryBtnSm}>
             <RotateCcw size={14} /> Réessayer
+          </button>
+        </div>
+      )}
+
+      {/* polling arrêté mais backend continue */}
+      {phase === "polling_stopped" && (
+        <div style={{ background: "#EFF6FF", border: `1px solid #BFDBFE`, borderRadius: 8, padding: 16 }}>
+          <p style={{ fontFamily: FONT, fontSize: 13.5, color: "#1E40AF", display: "flex", alignItems: "center", gap: 8, margin: "0 0 12px" }}>
+            <Clock size={16} /> Analyse toujours en cours… Le traitement de documents volumineux peut prendre plusieurs minutes. Vous pouvez revenir plus tard ; le résultat sera disponible une fois l'analyse terminée.
+          </p>
+          <button onClick={checkOnce} style={secondaryBtnSm}>
+            <RotateCcw size={14} /> Rafraîchir
           </button>
         </div>
       )}
